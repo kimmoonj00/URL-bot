@@ -1,0 +1,14 @@
+# Ignore generated capture files, but keep the directories themselves
+output/*
+!output/
+text/*
+!text/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+
+# Environment files
+.env
+.venv/
+venv/
