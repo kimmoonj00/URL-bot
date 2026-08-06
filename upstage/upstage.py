@@ -3,11 +3,11 @@ import time
 import requests
 import urllib3
 
+from config import IMAGE_DIR, TEXT_DIR
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = "" # 발급 받은 API Key 등록
-IMAGE_DIR = "output"
-TEXT_DIR = "text"
 REQUEST_DELAY = 2  # 이미지 간 대기(초) - 회사 프록시 연속 차단 방지
 
 

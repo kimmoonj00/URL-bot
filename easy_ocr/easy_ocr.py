@@ -1,13 +1,14 @@
 import os
 import time
-from google.cloud import vision
+import numpy as np
+from PIL import Image
+import easyocr
 
-IMAGE_DIR = "output"
-TEXT_DIR = "text"
-REQUEST_DELAY = 2  # 이미지 간 대기(초)
+from config import IMAGE_DIR, TEXT_DIR
 
-# Google Cloud Console에서 발급한 서비스 계정 JSON 파일 경로
-CREDENTIALS_PATH = "google_credentials.json"
+TILE_HEIGHT = 2000  # 타일 높이 (px) — EasyOCR canvas_size(2560)보다 작게 유지
+
+reader = easyocr.Reader(['ko', 'en'])
 
 
 def find_captured_images():
@@ -26,52 +27,56 @@ def image_path_to_text_path(image_path):
     return text_path
 
 
-def get_client():
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = CREDENTIALS_PATH
-    return vision.ImageAnnotatorClient()
+def run_ocr(image_path):
+    img = Image.open(image_path).convert("RGB")
+    width, height = img.size
+
+    all_lines = []
+    y = 0
+    tile_idx = 1
+
+    while y < height:
+        bottom = min(y + TILE_HEIGHT, height)
+        tile = np.array(img.crop((0, y, width, bottom)))
+        results = reader.readtext(tile)
+        lines = [text for _, text, _ in results if text.strip()]
+        all_lines.extend(lines)
+        print(f"    타일 {tile_idx} ({y}~{bottom}px): {len(lines)}줄 인식")
+        tile_idx += 1
+        y = bottom
+
+    return "\n".join(all_lines)
 
 
-def ocr_request(client, image_path):
-    with open(image_path, "rb") as f:
-        content = f.read()
-    image = vision.Image(content=content)
-    return client.document_text_detection(image=image)
-
-
-def run_ocr(client, image_path):
+def ocr_image(image_path):
     print(f"\n  파일: {image_path}")
+    img = Image.open(image_path)
+    print(f"  이미지 크기: {img.width}x{img.height}px → {-(-img.height // TILE_HEIGHT)}개 타일")
     start_time = time.time()
 
     try:
-        response = ocr_request(client, image_path)
+        text = run_ocr(image_path)
     except Exception as e:
         elapsed = time.time() - start_time
-        print(f"  ❌ 연결 실패: {e}")
+        print(f"  ❌ OCR 실패: {e}")
         print(f"  ⏱️  소요 시간: {elapsed:.1f}초")
         return
-
-    if response.error.message:
-        elapsed = time.time() - start_time
-        print(f"  ❌ API 오류: {response.error.message}")
-        print(f"  ⏱️  소요 시간: {elapsed:.1f}초")
-        return
-
-    all_text = response.full_text_annotation.text.strip()
 
     text_path = image_path_to_text_path(image_path)
     os.makedirs(os.path.dirname(text_path), exist_ok=True)
     with open(text_path, "w", encoding="utf-8") as f:
-        f.write(all_text)
+        f.write(text)
 
     elapsed = time.time() - start_time
-    print(f"  ✅ OCR 성공! → {text_path}")
+    total_lines = len(text.splitlines())
+    print(f"  ✅ OCR 완료 → {text_path} ({total_lines}줄)")
     print(f"  ⏱️  소요 시간: {elapsed:.1f}초")
-    print(f"  미리보기: {all_text[:150].strip()}")
+    print(f"  미리보기: {text[:150].strip()}")
 
 
-def run_ocr_all():
+def ocr_all():
     print("=" * 50)
-    print("Google Cloud Vision OCR")
+    print("EasyOCR (한국어 + 영어, 타일링)")
     print("=" * 50)
 
     images = find_captured_images()
@@ -79,16 +84,12 @@ def run_ocr_all():
         print(f"❌ '{IMAGE_DIR}' 폴더에 이미지가 없습니다. main.py를 먼저 실행하세요.")
         return
 
-    client = get_client()
     print(f"총 {len(images)}개 이미지 발견\n")
-
-    for i, img in enumerate(images):
-        run_ocr(client, img)
-        if i < len(images) - 1:
-            time.sleep(REQUEST_DELAY)
+    for img in images:
+        ocr_image(img)
 
     print(f"\n📄 텍스트 저장 위치: {os.path.abspath(TEXT_DIR)}")
 
 
 if __name__ == "__main__":
-    run_ocr_all()
+    ocr_all()
