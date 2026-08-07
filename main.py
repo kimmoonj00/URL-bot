@@ -244,9 +244,9 @@ def capture_full_page(page, full_path):
     try:
         page.set_viewport_size({"width": width, "height": total_height})
         time.sleep(0.5)  # 리사이즈 후 페인트 안정화 대기
-        page.screenshot(path=full_path, full_page=True)
+        page.screenshot(path=full_path, full_page=True, scale="device")
     except Exception:
-        page.screenshot(path=full_path, full_page=True)  # 최종 폴백: 일반 스크린샷
+        page.screenshot(path=full_path, full_page=True, scale="device")  # 최종 폴백: 일반 스크린샷
 
 
 def capture_url(page, url, idx, total, session_output_dir):
@@ -425,7 +425,7 @@ def run_capture_bot():
         )
         # 고정 뷰포트 사용 (no_viewport=True였던 이전 방식은 set_viewport_size()가
         # 정상 동작하지 않아 캡처 직전 뷰포트 확장(방법1)이 불가능했음)
-        context = browser.new_context(viewport=DEFAULT_VIEWPORT)
+        context = browser.new_context(viewport=DEFAULT_VIEWPORT, device_scale_factor=2)
 
         # [레이어 1 - 비활성화] context.add_init_script(INIT_SCRIPT)
         # 재활성화 시 위 INIT_SCRIPT 정의의 주석도 함께 해제할 것
