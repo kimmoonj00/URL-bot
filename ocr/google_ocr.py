@@ -1,18 +1,22 @@
 import io
 import os
 import time
+from dotenv import load_dotenv
 
 from PIL import Image
 from google.cloud import vision
 
-from config import IMAGE_DIR
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
-# gcloud ADC 자동 연결
-_adc = os.path.join(os.environ.get("APPDATA", ""), "gcloud", "application_default_credentials.json")
-if os.path.exists(_adc) and not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _adc
+IMAGE_DIR = "../capture/output"
 
-TEXT_DIR = "text"
+# .env에 GOOGLE_APPLICATION_CREDENTIALS가 없으면 gcloud ADC 자동 감지로 폴백
+if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
+    _adc = os.path.join(os.environ.get("APPDATA", ""), "gcloud", "application_default_credentials.json")
+    if os.path.exists(_adc):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = _adc
+
+TEXT_DIR = "output/google_ocr"
 ROW_TOLERANCE = 0.6  # 평균 글자 높이 × 이 비율 이내면 같은 행으로 간주
 COL_GAP_RATIO = 2.5  # 평균 글자 너비 × 이 비율 이상 간격이면 열 구분자(탭) 삽입
 

@@ -6,3 +6,9 @@ __pycache__/
 .env
 .venv/
 venv/
+
+#Capture 결과물
+# capture/output/
+
+# OCR 결과물
+# ocr/output/
