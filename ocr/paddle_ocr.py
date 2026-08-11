@@ -1,6 +1,5 @@
 import os
-os.environ["FLAGS_use_mkldnn"] = "0"  # oneDNN Windows 호환성 버그 우회
-
+import re
 import time
 import numpy as np
 from PIL import Image
@@ -13,15 +12,16 @@ TILE_HEIGHT   = 2000
 TILE_OVERLAP  = 150
 IOU_THRESH    = 0.5
 CONF_MIN      = 0.4
-ROW_TOLERANCE = 0.6
+ROW_TOLERANCE = 0.7
 COL_GAP_RATIO = 2.5
 
-# PaddleOCR 3.x 파라미터명 변경
+# text_det_limit_side_len: 탐지 해상도 상한 (낮을수록 빠름, 1920은 일반 폰트 충분)
+# use_textline_orientation: 한국 전자상거래는 가로 텍스트만 → False로 속도 단축
 ocr = PaddleOCR(
-    use_textline_orientation=True,
+    use_textline_orientation=False,
     lang="korean",
-    text_det_limit_side_len=4000,    # 3000px 이미지가 리사이즈 없이 처리되도록
-    text_det_limit_type="max",       # 4000 초과 시만 축소, 업스케일 없음
+    text_det_limit_side_len=1920,
+    text_det_limit_type="max",
 )
 
 
@@ -36,7 +36,13 @@ def find_captured_images():
 
 def image_path_to_text_path(image_path):
     relative = os.path.relpath(image_path, IMAGE_DIR)
-    return os.path.join(OUT_DIR, os.path.splitext(relative)[0] + ".txt")
+    base = os.path.join(OUT_DIR, os.path.splitext(relative)[0])
+    path = base + ".txt"
+    counter = 1
+    while os.path.exists(path):
+        path = f"{base} ({counter}).txt"
+        counter += 1
+    return path
 
 
 # ── 1. 단어별 위치 추출 ───────────────────────────────────────────────────────
@@ -129,7 +135,19 @@ def _row_to_line(row: list) -> str:
     return "".join(parts)
 
 
-# ── 5. 파이프라인 ─────────────────────────────────────────────────────────────
+# ── 5. 숫자 후처리 ───────────────────────────────────────────────────────────
+
+def _fix_numbers(text: str) -> str:
+    # "20.130원" → "20,130원"  (천단위 구분자 마침표 → 쉼표)
+    text = re.sub(r'(\d+)\.(\d{3})(원)', r'\1,\2\3', text)
+    # "17 890원" → "17,890원"  (천단위 공백 제거 후 쉼표)
+    text = re.sub(r'(\d{2,3}) (\d{3})(원)', r'\1,\2\3', text)
+    # "17 .890원" → "17,890원"  (공백+마침표 혼합)
+    text = re.sub(r'(\d{2,3}) \.(\d{3})(원)', r'\1,\2\3', text)
+    return text
+
+
+# ── 6. 파이프라인 ─────────────────────────────────────────────────────────────
 
 def run_ocr(image_path):
     img = Image.open(image_path).convert("RGB")
@@ -150,7 +168,7 @@ def run_ocr(image_path):
 
     all_words = _dedup(all_words)
     rows = _group_rows(all_words)
-    return "\n".join(_row_to_line(r) for r in rows)
+    return _fix_numbers("\n".join(_row_to_line(r) for r in rows))
 
 
 def ocr_image(image_path):

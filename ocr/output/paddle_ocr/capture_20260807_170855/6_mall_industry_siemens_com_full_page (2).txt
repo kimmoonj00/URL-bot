@@ -1,0 +1,94 @@
+MA	Industry Mall
+INDSTRYRIA	Welcome to our product catalog and online ordering
+INDUSTRY MALL	system.
+ustry Mall	English	Contact Us Help	Site Explorer	Product Search
+> Home > Catalog > · >Device Programming Units and Accessories > 500-033260	0 Catalog Shopping Cart	Tools
+DPU|500-033260
+Buy product
+is a compact, portable and menu-driven accessory used in many Siemens fire systems for	Quantity	1 Piece
+Add to cart
+microcomputer-chip, non-volatile memory.	Frequently bought together:
+List Price	>Show prices
+Customer Price	>Show prices
+Availability
+Product
+Product Number (Market Facing Number)	DPU | 500-033260
+Product Description	DPU - Device Programmer / Test Unit for Fire Finder XLS	> DPU-C1 | 500-033990
+and MsL Devices. Model DPU is a compact, portable and menu-driven accessory used in many Siemens fire systems	a protective carrying case for the Siemens DPU-C1 - Carrying Case for DPU. Model DPU-C1 is
+and reliably. Model DpU eliminates the need for for electronically programming and testing detectors easily	Programmer / Tester Device, Model DPU.
+cumbersome, unreliable mechanical programming methods
+(such as dials or rotary switches), thus reducing installation
+tests the detector prior to installation, via the interface's and service costs. Model DPU electronically programs and
+microcomputer-chip, non-volatile memory.
+Product family	> Device Programming Units and Accessories
+Product Lifecycle (PLM)	PM300:Active Product
+Price data	> SCM-8| 500-033040
+rice Group	Designed for use in the Siemens Modular (or SCM-8 - Switch Control Module (8 Switches).
+ist Price	>Show prices	FireFinder) fire alarm control panel, Model sCM-8 is
+ustomer Price	>Show prices	an option module that provides manual control of the Emergency Voice Evacuation System or manual
+letal Factor	None	fire system control. Each Model SCM-8 module provides eight (8) momentary push button switches
+elivery information	assigned two (2) LEDs and a label to indicate the and 16 LEDs to indicate their status. Each switch is
+xport Control Regulations	AL:N/ECCN:EAR99	programmed usage with a label. One of the LEDs
+ays to Stock	1 Day/Days	indicate what type of signal is active, and may also assigned to each switch is a dual-color LED used to
+let Weight (Ib)	4.321 Ib	be lighted steady or flashing to further indicate
+ackaging Dimension	18.95× 25.75 × 6.70	system status. For example, zones active to the Evacuation audio channel will have the LED lighted
+ackage size unit of measure	INH	RED and steady; Zones active to the Alert audio
+Quantity Unit	1 Piece	zones selected for paging will have the LED lighted channel will have the LED lighted RED and flashing;
+ackaging Quantity	1	GREEN and flashing until the microphone key is
+Additional Product Information	pressed; when the zone transfer confirmation message is received by the panel's command
+AN	Not available	console, the LED will change to steady GREEN,
+JPC LKZ_FDB/ CatalogID	Not available BT_Catalog	GREEN until selected at the command console at which time the LED will convert to steady GREEN, indicating that it is clear to page; telephone Zones
+Product Group ommodity Code	P3UZ 8537109170	etc. This allows the operator easy, clear access to GREEN until selected at the command console at the overall system condition at all times. The second
+Group Code _KZ_FDB/ CataloglD	H3UL BT_Catalog	LED is amber, and is used to indicate a fault
+roduct Group Country of origin	P3UZ United States of America	fully programmable and may be used to control condition. Each Model SCM-8 and each switch is
+RoHs Compliance	not available	speaker circuits and a wide range of general system functions, such as All Call, All Evac, Warden's Page,
+WEEE (2012/19/EU) Take-Back Obligation	No	Speaker, etc. Any number of circuits may be
+candidates REACH Art. 33 Duty to inform according to the current list of Lead CAS-No. 7439-92-1 > 0, 1 % (w /w)	grouped and controlled by a single switch. Switch usage and zone groupings are assigned using the
+programming software, ZEUS. Every Model SCM-8
+SCIP number	Not available	is mounted on a hinged panel, as a part of the command console enclosure. Any combination of a
+Classifications	Model SCM-8. LCM-8 or FCM-6 modules may be
+Not available	mounted on the Model ID-MP, A six (6) conductor cable is supplied for interconnection of the modules.
+mounted up to 1000 feet (304.8 m.) from the main Models SCM-8, LCM-8, and FCM-6 can be remotely
+enclosures are required for remote mounting to a enclosure. Models REMBOX2 and REMBOX4 lobby
+SCM-8, LCM-8 and FCM-6. The Model CSB sounder is optionally available for switch audible
+feedback for remote mounting applications.
+>NIC-C | 500-033240
+NIC-C - Network Interface Card. Designed for use in
+a Siemens Modular (or FireFinder) system, the
+X-NET network communications between Network Interface Card or NlC-C provides H-NET or
+enclosures. In addition to the H-NET or X-NET communication the NIC-C proyides CAN network
+communication within an enclosure or external to the enclosure. The H-NET or X-NET can be wired
+Style 4 or Style 7. The CAN network can be wired Style 4 only. A single NIC-C provides either H-NET
+of the HNET or XNET usage. When the NIC-C is or X-NET. The CAN interface is available regardless
+used for H-NET communications it provides
+communication between enclosures on a single system. It is set for H-NET usage and an H-NET
+system (single node) is 64. The NIC-C supervises address. The maximum H-NET NIC-Cs on a single
+NIC-C also isolates a short circuit fault to each the H-NET network to insure proper operation. The
+individual segment of the HNET network. The NIC-C
+provides an electrical repeater for each H-NET pair.
+FIRE
+>HMS-D | 500-033400
+HMS-D - Addressable Manual Fire Alarm Box
+Double Action. The Model HMs-D intelligent manual
+fire-alarm box provides the most advanced method
+with sophisticated control-panel communication. of address programming and supervision; combined
+Further, each Model HMs-D box achieves the state
+custom microcomputer-chip technology with of an intelligent-initiating device by incorporating capabilities to the Siemens FACP.
+sophisticated, bi-directional communication
+capabilities to the Siemens FACP.
+>ZIC-4A/ 500-033050
+ZIC-4A - Zone Indicating Card. Designed for use on
+a Siemens Modular (or FireFinder XLS) control
+four (4) fully supervised programmable output panel, the Zone Indicating Card ZlC-4A provides
+circuits. Model ZIC-4A supplies four (4) Class B
+(Style Y) or Class A (Style Z) type output circuits,
+power limited to 4.0 amps maximum per circuit. Each circuit can be independently programmed for
+use with listed audible or visual notification
+appliances; listed emergency audio speakers; municipal-tie boxes; leased lines, or as releasing
+circuits. Model ZIC-4A plugs into one (1) slot in a Model CC-5 or CC-2 card cage, and has on-board
+troubleshooting. Indication of power; light-emitting diodes (LEDs) for system status and
+conditions are provided, as well as indication of communication; internal operation, and ground fault
+or output may be controlled automatically with circuit activation or Trouble conditions. Each circuit
+system logic programmed with the ZEUs programming tool or manually using a Siemens
+front of the panel's central processor unit. Modular (or FireFinder XLS) keypad found on the
+© Siemens AG | Corporate Information I Imprint | Terms of Use | Data Privacy | Cookie Policy I Digital ID | SiePortal T&C	Catalog: ZU, Rdbid: ZU11146 (D4S). Valid: 08-01-26
