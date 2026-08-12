@@ -1,21 +1,9 @@
-# ── capture/ ──────────────────────────────────────────────────────────────────
-playwright>=1.62.0
-
-# ── ocr/ (공통) ────────────────────────────────────────────────────────────────
-Pillow>=12.3.0
-python-dotenv>=1.0.0
-
-# ── ocr/google_ocr.py ─────────────────────────────────────────────────────────
-google-cloud-vision>=3.7.0
-
-# ── ocr/upstage_ocr.py, ocr/upstage_dp.py ────────────────────────────────────
-requests>=2.34.0
-
-# ── ocr/easy_ocr.py ───────────────────────────────────────────────────────────
-numpy>=2.0.0
-easyocr>=1.7.2
-
-# ── ocr/paddle_ocr.py ─────────────────────────────────────────────────────────
+playwright>=1.45.0
+# paddlepaddle는 3.0.0으로 고정한다. 이후 패치 버전(예: 3.3.1, 현 latest)에서는
+# Windows CPU 환경에서 PP-OCRv5 det/rec 추론 중 재현되는 네이티브 크래시
+# (NotImplementedError: ConvertPirAttribute2RuntimeAttribute ... onednn_instruction)
+# 버그가 있어 paddleocr==3.0.0과 같은 시기에 나온 3.0.0으로 맞춘다.
 paddlepaddle==3.0.0
-paddleocr>=3.7.0
-opencv-contrib-python>=4.10.0  # paddleocr 3.x 의존성
+paddleocr==3.0.0
+Pillow>=10.0.0
+numpy

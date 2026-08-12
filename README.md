@@ -1,207 +1,81 @@
-# URL Bot — 자동화 웹 캡처 & OCR 텍스트 추출 도구
+# URL-bot-paddle
 
-전자상거래 사이트에서 제품 URL을 입력하면 전체 페이지를 고해상도로 자동 캡처하고, 여러 OCR 엔진으로 형번·규격·가격 등 제품 사양을 텍스트로 추출하는 자동화 도구입니다.
+상품 URL을 열어 전체 페이지를 캡쳐하고, PaddleOCR로 캡쳐 이미지에서
+**상품명**과 **규격/사양**을 추출하는 자동화 도구.
 
-캡처 시 쿠키 팝업 자동 제거, 더보기 버튼 자동 클릭, lazy-load 콘텐츠 완전 로드 후 캡처 등의 처리를 자동으로 수행합니다. OCR은 단순 텍스트 추출이 아닌 **좌표 기반 공간 재조합 방식**으로 표 구조의 행·열 순서를 보존해 추출합니다.
+캡쳐 로직(`capture/`)과 OCR/정보추출 로직(`ocr/`)은 서로 독립적으로 동작한다.
 
----
-
-## 목차
-
-1. [파이프라인](#1-파이프라인)
-2. [파일 구조](#2-파일-구조)
-3. [설치](#3-설치)
-4. [사용 방법](#4-사용-방법)
-5. [주요 특징](#5-주요-특징)
-6. [OCR 엔진 비교](#6-ocr-엔진-비교)
-7. [성능 개선 적용 현황](#7-성능-개선-적용-현황)
-8. [지원 사이트 현황](#8-지원-사이트-현황)
-
----
-
-## 1. 파이프라인
+## 폴더 구조
 
 ```
-capture/config.py 에 URL 입력
-        ↓
-capture/main.py          — 전체 페이지 고해상도 캡처 → capture/output/ 저장
-        ↓
-ocr/google_ocr.py        — Google Cloud Vision + 좌표 기반 구조 재조합
-ocr/paddle_ocr.py        — PaddleOCR (PP-OCRv5) + 좌표 기반 구조 재조합
-ocr/easy_ocr.py          — EasyOCR + 좌표 기반 구조 재조합
-ocr/upstage_ocr.py       — Upstage OCR API + 좌표 기반 구조 재조합
-ocr/upstage_dp.py        — Upstage Document Parse Enhanced (실험용)
-        ↓
-ocr/output/{엔진명}/      — 엔진별 텍스트 추출 결과 저장
+capture/
+  capturer.py     # Playwright로 URL을 열어 전체 페이지 스크린샷 저장
+ocr/
+  engine.py       # PaddleOCR 래퍼 (이미지 -> 텍스트/좌표)
+  tiling.py       # 세로로 매우 긴 상세페이지 이미지를 타일로 나눠 OCR 후 좌표 병합
+  table.py        # 좌표 기반 행/열(표) 재구성
+  parser.py       # 표에서 상품명 / 규격·사양 파싱
+config/
+  urls.txt        # 캡쳐할 URL 목록 (한 줄에 하나)
+output/
+  captures/       # 캡쳐 이미지 + captures.jsonl 메타데이터
+  results/        # 상품별 결과 json + summary.csv
+main.py           # 캡쳐 -> OCR 파이프라인 실행
 ```
 
----
+## 사용법
 
-## 2. 파일 구조
+```powershell
+# 1) config/urls.txt 에 캡쳐할 상품 URL을 한 줄에 하나씩 입력
 
-```
-├── capture/
-│   ├── main.py              # 웹 페이지 캡처 (Playwright)
-│   ├── config.py            # URL 목록 및 캡처 설정
-│   └── output/              # 캡처 이미지 저장 (main.py 실행 결과)
-│
-├── ocr/
-│   ├── google_ocr.py        # Google Cloud Vision OCR
-│   ├── paddle_ocr.py        # PaddleOCR (PP-OCRv5 한국어)
-│   ├── easy_ocr.py          # EasyOCR (한국어 + 영어)
-│   ├── upstage_ocr.py       # Upstage OCR API
-│   ├── upstage_dp.py        # Upstage Document Parse Enhanced (실험용)
-│   └── output/
-│       ├── google_ocr/      # Google Vision 추출 결과 (.txt)
-│       ├── paddle_ocr/      # PaddleOCR 추출 결과 (.txt)
-│       ├── easy_ocr/        # EasyOCR 추출 결과 (.txt)
-│       ├── upstage_ocr/     # Upstage OCR 추출 결과 (.txt)
-│       └── upstage_dp/      # Upstage Document Parse 결과 (.md)
-│
-├── .env                     # API 키 (git 제외)
-├── requirements.txt         # 의존성 패키지
-└── .gitignore
+# 2) 가상환경 활성화 후 실행
+.\venv\Scripts\python.exe main.py
 ```
 
----
+실행하면 `output/captures/`에 캡쳐 이미지가, `output/results/`에
+URL별 결과(json)와 전체 요약(`summary.csv`)이 저장된다.
 
-## 3. 설치
+## 버전 고정 이유 (중요)
 
-```bash
-pip install -r requirements.txt
-playwright install chromium
-```
+- `requirements.txt`는 `paddlepaddle==3.0.0` + `paddleocr==3.0.0`으로 **정확히
+  고정**되어 있다. 임의로 올리면 아래 두 문제가 재발한다.
+  1. **paddlepaddle을 3.0.0보다 올리면(예: 최신 3.3.1)** Windows CPU에서
+     PP-OCR 감지/인식 추론 중 `NotImplementedError:
+     ConvertPirAttribute2RuntimeAttribute ... onednn_instruction` 크래시가
+     재현된다(예외가 아니라 프로세스가 그냥 죽는다). paddlepaddle 3.0.0
+     에서는 발생하지 않는다.
+  2. **paddleocr 3.0.0의 기본 모델 세대(PP-OCRv5)는 한국어 인식 모델이
+     없다.** `lang="korean"`을 줘도 내부적으로 무시되고 중국어/영어 모델로
+     인식해 한글이 전부 깨진다. 그래서 `ocr/engine.py`에서
+     `ocr_version="PP-OCRv3"`로 강제 지정해 `korean_PP-OCRv3_mobile_rec`
+     모델을 쓰도록 했다. (더 최신 paddleocr, 예: 3.7.x는 PP-OCRv5용
+     한국어 모델이 추가돼 있지만, 그 버전은 paddlepaddle 최신판을 요구해서
+     위 1번 크래시를 다시 만난다.)
 
-### 3-1. API 키 설정
+## 성능 관련 처리
 
-프로젝트 루트에 `.env` 파일을 생성합니다:
+- 캡쳐 이미지는 이미 똑바로 서 있는 스크린샷이라 문서방향 분류/언워핑/
+  텍스트라인 방향보정을 꺼서(`ocr/engine.py`) 불필요한 모델 로딩·추론을
+  없앴다.
+- 상세페이지 이미지는 세로로 수만 px에 달할 수 있어(예: 2880×44042px) 한
+  번에 OCR을 돌리면 처리 시간이 급격히 늘어난다. `ocr/tiling.py`가 3000px
+  높이로 겹치게 잘라 타일 단위로 처리하고 좌표를 원본 기준으로 병합한다.
 
-```
-UPSTAGE_API_KEY=your_upstage_api_key_here
+## 알려진 한계 (다음에 다듬을 부분)
 
-# Google 인증 경로 (미설정 시 gcloud ADC 자동 감지)
-# GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\application_default_credentials.json
-```
-
-### 3-2. Google Cloud Vision 인증
-
-gcloud CLI 설치 후 아래 명령어로 인증합니다:
-
-```bash
-gcloud auth application-default login
-```
-
-> `.env`에 `GOOGLE_APPLICATION_CREDENTIALS` 경로를 명시해도 되고, 미설정 시 gcloud ADC를 자동 감지합니다.
-
----
-
-## 4. 사용 방법
-
-### 4-1. URL 설정
-
-`capture/config.py`에 캡처할 URL을 추가합니다:
-
-```python
-TARGET_URLS = [
-    "https://example-mro-site.com/product/12345",
-    ...
-]
-```
-
-### 4-2. 캡처 실행
-
-```bash
-cd capture
-python main.py
-```
-
-`capture/output/capture_YYYYMMDD_HHMMSS/` 폴더에 PNG 이미지로 저장됩니다.
-
-### 4-3. OCR 실행
-
-원하는 엔진을 선택해 실행합니다:
-
-```bash
-cd ocr
-python google_ocr.py      # Google Cloud Vision (정확도 최고, 유료)
-python paddle_ocr.py      # PaddleOCR PP-OCRv5 (무료 대안, Google Vision 수준)
-python easy_ocr.py        # EasyOCR (무료, 한국어 오인식 주의)
-python upstage_ocr.py     # Upstage OCR API (유료)
-python upstage_dp.py      # Upstage Document Parse (실험용, 단일 이미지 처리)
-```
-
-결과는 `ocr/output/{엔진명}/capture_YYYYMMDD_HHMMSS/` 폴더에 저장됩니다.  
-(`upstage_dp`만 `.md` 형식, 나머지는 `.txt`)
-
----
-
-## 5. 주요 특징
-
-- **고해상도 캡처**: `device_scale_factor=2`로 2배 해상도 캡처 (OCR 정확도 향상)
-- **팝업 자동 처리**: 쿠키 동의 배너, 오버레이 자동 제거
-- **lazy-load 대응**: 스크롤 기반 콘텐츠 완전 로드 후 캡처
-- **좌표 기반 OCR**: 단어별 바운딩 박스를 활용해 표 구조 행·열을 공간적으로 재조합 (5개 엔진 공통)
-- **타일 분할 처리**: 대용량 이미지를 타일로 분할 후 좌표 보정 병합
-- **타일 오버랩**: 타일 경계 절단 방지를 위한 150px 겹침 + IOU 중복 제거 (PaddleOCR, EasyOCR)
-- **신뢰도 필터링**: 낮은 신뢰도 노이즈 토큰 자동 제거 (PaddleOCR 0.4, EasyOCR 0.3)
-- **API 키 보안**: `.env` 기반 관리 (코드 하드코딩 없음)
-- **봇 차단 도메인 필터링**: 네이버, 쿠팡 등 자동 제외 (`config.py`에서 관리)
-
----
-
-## 6. OCR 엔진 비교
-
-### 6-1. 표준 항목별 성능 비교
-
-| 비교 항목 | Google Vision | PaddleOCR | EasyOCR | Upstage OCR | Upstage DP |
-|---|:---:|:---:|:---:|:---:|:---:|
-| 한국어 OCR 정확도 | ★★★★★ | ★★★★☆ | ★★☆☆☆ | ★★★★☆ | ★★★☆☆ |
-| 표 구조 추출 | ★★★★★ | ★★★★★ | ★★★☆☆ | ★★★☆☆ | ★☆☆☆☆ |
-| 한·영·숫자 혼합 인식 | ★★★★★ | ★★★★☆ | ★★☆☆☆ | ★★★★☆ | ★★★☆☆ |
-| 대용량 이미지 처리 | ★★★★☆ | ★★★★★ | ★★★★★ | ★★★☆☆ | ★★☆☆☆ |
-| 비용 효율성 | ★★☆☆☆ | ★★★★★ | ★★★★★ | ★★★☆☆ | ★★☆☆☆ |
-| 설치·환경 설정 | ★★★★☆ | ★★★☆☆ | ★★★★★ | ★★★★☆ | ★★★★☆ |
-| **종합 평점** | **★★★★★** | **★★★★☆** | **★★★☆☆** | **★★★☆☆** | **★★☆☆☆** |
-
-> **표 구조 추출** — Gmarket 규격표(9행) 기준, PaddleOCR은 Google Vision과 동등 수준으로 추출  
-> **EasyOCR 한국어** — 좌표 기반 구조는 정상이나 문자 자체 오인식 심각 (`mm→rnrn`, `100→IUU`)  
-> **Upstage DP 표 추출** — 셀이 개별 텍스트 블록으로 분해되어 행·열 구조 완전 소실  
-> **비용 효율성** — 무료(PaddleOCR·EasyOCR) = ★★★★★, 유료 API 비교는 Google Vision 대비 상대적 평가
-
-### 6-2. 엔진별 장단점
-
-| 엔진 | 비용 | 장점 | 단점 |
-|---|---|---|---|
-| **Google Vision** | 유료 (API) | 정확도 최고, 한국어·영문·숫자 안정적, 타일 경계 처리 우수 | 비용 발생, 네트워크 의존 |
-| **PaddleOCR** | 무료 | PP-OCRv5 한국어 모델로 Google Vision 수준, 로컬 실행 | 초기 모델 다운로드 필요, Windows에서 환경변수 설정 필요 (`FLAGS_use_mkldnn=0`) |
-| **EasyOCR** | 무료 | 설치 간단, 다국어 지원 | 한국어+숫자+영문 혼합 시 오인식 심각 (`mm→rnrn`, `100→IUU`, `1/2→12`) |
-| **Upstage OCR** | 유료 (API) | 한국어 특화 | 복잡한 시각 표에서 Google Vision 대비 낮은 정확도 |
-| **Upstage DP** | 유료 (API) | 문서 파싱 특화, Markdown 출력 | 웹 스크린샷 대용량 처리 불가, 표 구조 복원 실패, 타일링 없음 |
-
----
-
-## 7. 성능 개선 적용 현황
-
-| 개선 항목 | Google Vision | Upstage OCR | PaddleOCR | EasyOCR | Upstage DP |
-|---|:---:|:---:|:---:|:---:|:---:|
-| 좌표 기반 행 재조립 | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 탭 삽입 (열 구분) | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 타일링 (대용량 처리) | ✅ 8MB↑ | ✅ 5MB↑ | ✅ 항상 | ✅ 항상 | ❌ 리사이즈만 |
-| 타일 오버랩 150px | ❌ | ❌ | ✅ | ✅ | N/A |
-| IOU 중복 제거 | ❌ | ❌ | ✅ | ✅ | N/A |
-| 신뢰도 필터링 | ❌ | ❌ | ✅ 0.4 | ✅ 0.3 | N/A |
-| 모델 업그레이드 | N/A | N/A | ✅ (3.7.0 기본값) | ❌ | ✅ nightly |
-
----
-
-## 8. 지원 사이트 현황
-
-| 사이트 | 캡처 | OCR |
-|---|---|---|
-| Misumi (kr.misumi-ec.com) | ✅ | ✅ |
-| Festo (www.festo.com) | ✅ | ✅ |
-| Gmarket (item.gmarket.co.kr) | ✅ | ✅ |
-| Swagelok (products.swagelok.com) | ✅ | ✅ |
-| Siemens Industry Mall | ✅ | ✅ |
-| Auction (itempage3.auction.co.kr) | ⚠️ Cloudflare 봇 탐지 | — |
-| 네이버, 쿠팡 | 🚫 차단 (자동 제외) | — |
+- 상품명/규격·사양 추출(`ocr/parser.py`)은 아래 순서의 휴리스틱을 쓴다.
+  1. "상품명/제품명/품명/모델명" 라벨이 붙은 2셀(라벨-값) 표 행을 우선 사용
+  2. 못 찾으면 페이지 상단 30% 영역에서 글자가 가장 큰 텍스트를 상품명으로 추정
+  3. 규격/사양은 2셀(라벨-값) 행 중 가격/상품명 라벨을 제외한 나머지를 사용
+- `navimro.com` 실제 상세페이지로 테스트한 결과, OCR 텍스트 인식 자체는
+  정확했지만(한글이 깨지지 않고 제대로 인식됨) 파싱 결과는 부정확했다:
+  - 이 사이트는 규격/사양이 "라벨-값" 2칸 표가 아니라 **여러 열로 된
+    그리드 표**(규격/날장/전장/원산지/모델명/상품코드/판매가 등)라서
+    헤더 행이 통째로 값 하나로 묶여버린다.
+  - 상품명 폴백(상단 큰 글씨) 휴리스틱이 로고/배너의 엉뚱한 텍스트를
+    집어 틀렸다.
+  - 또한 네비게이션/로그인/장바구니/푸터 정책 문구 같은, 우연히 2셀
+    행처럼 보이는 UI 텍스트가 규격/사양 결과에 노이즈로 섞여 들어간다.
+  - 다중 열 그리드 표 대응, 상품명 폴백 개선(상세페이지 본문 영역으로
+    범위 한정 등), UI/네비게이션 텍스트 필터링을 다음 개선 대상으로
+    남겨둔다.
