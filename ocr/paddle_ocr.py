@@ -15,7 +15,7 @@ CONF_MIN      = 0.4
 ROW_TOLERANCE = 0.7
 COL_GAP_RATIO = 2.5
 
-# text_det_limit_side_len: 탐지 해상도 상한 (낮을수록 빠름, 1920은 일반 폰트 충분)
+# text_det_limit_side_len: 탐지 해상도 상한 (낮을수록 빠름, 1280은 ~3000px 이미지 기준 안전)
 # use_textline_orientation: 한국 전자상거래는 가로 텍스트만 → False로 속도 단축
 ocr = PaddleOCR(
     use_textline_orientation=False,
@@ -194,7 +194,7 @@ def ocr_image(image_path):
     total_lines = len(text.splitlines())
     print(f"  ✅ OCR 완료 → {text_path} ({total_lines}줄)")
     print(f"  ⏱️  소요 시간: {elapsed:.1f}초")
-    print(f"  미리보기: {text[:150].strip()}")
+    # print(f"  미리보기: {text[:150].strip()}")
 
 
 def ocr_all():
