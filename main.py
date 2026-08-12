@@ -24,7 +24,15 @@ import json
 from pathlib import Path
 
 from capture import capture_url
-from ocr import PaddleOCREngine, extract_product_info, reconstruct_table, run_tiled
+from llm import extract_product_info_llm
+from ocr import (
+    PaddleOCREngine,
+    filter_by_confidence,
+    reconstruct_table,
+    run_tiled,
+)
+
+CONFIDENCE_THRESHOLD = 0.5
 
 BASE_DIR = Path(__file__).resolve().parent
 URLS_FILE = BASE_DIR / "config" / "urls.txt"
@@ -61,16 +69,16 @@ def run() -> None:
         print(f"  -> 이미지 저장: {capture.image_path}")
 
         print("[OCR] 텍스트 추출 중... (상세페이지가 길면 타일로 나눠 처리)")
-        boxes = run_tiled(engine, capture.image_path)
-        info = extract_product_info(boxes)
+        boxes = filter_by_confidence(run_tiled(engine, capture.image_path), CONFIDENCE_THRESHOLD)
 
         rows = reconstruct_table(boxes)
+        raw_text = "\n".join("\t".join(cell for cell in row) for row in rows)
         text_path = RESULT_DIR / f"{capture.image_path.stem}.txt"
-        text_path.write_text(
-            "\n".join("\t".join(cell for cell in row) for row in rows),
-            encoding="utf-8",
-        )
+        text_path.write_text(raw_text, encoding="utf-8")
         print(f"  -> OCR 텍스트 저장: {text_path}")
+
+        print("[LLM] 상품명/규격 추출 중... (Qwen2.5 로컬 추론)")
+        info = extract_product_info_llm(raw_text)
 
         result = {
             "url": url,

@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 output/captures/
 output/results/
+output/chrome-profile/
 test_ocr.png

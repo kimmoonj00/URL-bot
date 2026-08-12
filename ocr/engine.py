@@ -111,3 +111,8 @@ class PaddleOCREngine:
                 )
             )
         return text_boxes
+
+
+def filter_by_confidence(boxes: List[TextBox], threshold: float = 0.5) -> List[TextBox]:
+    """신뢰도가 threshold 미만인 오인식 텍스트 박스를 제거한다."""
+    return [b for b in boxes if b.confidence >= threshold]
