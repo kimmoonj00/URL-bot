@@ -1,0 +1,9 @@
+{
+  "model": "qwen2.5:3b",
+  "elapsed_sec": 70.7,
+  "name": null,
+  "specs": {
+    "몸체재질": "PTFE",
+    "연결구1크기": "8mm"
+  }
+}

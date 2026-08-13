@@ -1,14 +1,5 @@
-# Python build artifacts
+venv/
 __pycache__/
 *.pyc
-
-# Environment files
-.env
-.venv/
-venv/
-
-#Capture 결과물
-# capture/output/
-
-# OCR 결과물
-# ocr/output/
+output/chrome-profile/
+test_ocr.png
