@@ -178,7 +178,7 @@ def ocr_all():
 
     images = find_captured_images()
     if not images:
-        print(f"❌ '{IMAGE_DIR}' 폴더에 이미지가 없습니다. capture/main.py를 먼저 실행하세요.")
+        print(f"❌ '{IMAGE_DIR}' 폴더에 이미지가 없습니다. capture/capture.py를 먼저 실행하세요.")
         return
 
     print(f"총 {len(images)}개 이미지 발견\n")

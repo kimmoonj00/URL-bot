@@ -1,0 +1,12 @@
+상품명: DPU - Device Programmer / Test Unit for Fire Finder XLS  
+브랜드: INDSTRYRIA  
+모델번호/형번: 500-033260  
+규격:  
+  - [속성명]: microcomputer-chip, non-volatile memory  
+  - [속성명]: Siemens Modular (or SCM-8)  
+  - [속성명]: FireFinder fire alarm control panel  
+  - [속성명]: compact, portable, menu-driven accessory  
+  - [속성명]: electronically programs and tests detectors  
+  - [속성명]: non-volatile memory  
+  - [속성명]: 1 Piece  
+제품 설명: DPU - Device Programmer / Test Unit for Fire Finder XLS is a compact, portable and menu-driven accessory used in many Siemens fire systems for electronically programming and testing detectors prior to installation, via the interface's microcomputer-chip, non-volatile memory.

@@ -1,12 +1,68 @@
+import sys
+import types
+import importlib.abc
+import importlib.machinery
+
+def _stub_pandas():
+    class _PandasModule(types.ModuleType):
+        def __init__(self, name):
+            super().__init__(name)
+            self.__path__    = []
+            self.__package__ = name
+            self.__spec__    = None
+
+        def __getattr__(self, name):
+            if name.startswith("__") and name.endswith("__"):
+                raise AttributeError(name)
+            full_name = f"{self.__name__}.{name}"
+            if full_name not in sys.modules:
+                child = _PandasModule(full_name)
+                sys.modules[full_name] = child
+                object.__setattr__(self, name, child)
+            return sys.modules[full_name]
+
+        def __call__(self, *args, **kwargs):
+            return _PandasModule(f"{self.__name__}._result")
+
+        def __iter__(self):
+            return iter([])
+
+        def __bool__(self):
+            return True
+
+    class _PandasFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+        def find_spec(self, fullname, path, target=None):
+            if fullname == "pandas" or fullname.startswith("pandas."):
+                return importlib.machinery.ModuleSpec(fullname, self)
+            return None
+        def create_module(self, spec):
+            if spec.name in sys.modules:
+                return sys.modules[spec.name]
+            return _PandasModule(spec.name)
+        def exec_module(self, module):
+            pass
+
+    class DataFrame: pass
+
+    stub = _PandasModule("pandas")
+    stub.DataFrame = DataFrame
+    stub.read_csv  = lambda *a, **kw: None
+    sys.modules["pandas"] = stub
+    sys.meta_path.insert(0, _PandasFinder())
+
+_stub_pandas()
+
 import os
 import re
 import time
+from pathlib import Path
 import numpy as np
 from PIL import Image
 from paddleocr import PaddleOCR
 
-IMAGE_DIR = "../capture/output"
-OUT_DIR   = "output/paddle_ocr"
+_BASE     = Path(__file__).parent
+IMAGE_DIR = str(_BASE.parent / "capture" / "output")
+OUT_DIR   = str(_BASE / "output" / "paddle_ocr")
 
 TILE_HEIGHT   = 2000
 TILE_OVERLAP  = 150
@@ -204,7 +260,7 @@ def ocr_all():
 
     images = find_captured_images()
     if not images:
-        print(f"❌ '{IMAGE_DIR}' 폴더에 이미지가 없습니다. capture/main.py를 먼저 실행하세요.")
+        print(f"❌ '{IMAGE_DIR}' 폴더에 이미지가 없습니다. capture/capture.py를 먼저 실행하세요.")
         return
 
     print(f"총 {len(images)}개 이미지 발견\n")
