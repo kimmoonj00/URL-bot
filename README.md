@@ -1,65 +1,103 @@
-# URL Bot — 자동화 웹 캡처 & OCR 텍스트 추출 도구
+# URL Bot — 상품 URL 자동 크롤링 · OCR · 정보 추출 도구
 
-전자상거래 사이트에서 제품 URL을 입력하면 전체 페이지를 고해상도로 자동 캡처하고, 여러 OCR 엔진으로 형번·규격·가격 등 제품 사양을 텍스트로 추출하는 자동화 도구입니다.
-
-캡처 시 쿠키 팝업 자동 제거, 더보기 버튼 자동 클릭, lazy-load 콘텐츠 완전 로드 후 캡처 등의 처리를 자동으로 수행합니다. OCR은 단순 텍스트 추출이 아닌 **좌표 기반 공간 재조합 방식**으로 표 구조의 행·열 순서를 보존해 추출합니다.
+이커머스·산업용 부품 사이트의 상품 URL을 입력하면 **텍스트(DOM/표) + 이미지를 함께 수집**하고, 이미지에서 PaddleOCR로 규격 정보를 추출한 뒤, Ollama/Qwen LLM으로 상품명·모델번호·사이즈·사양을 자동으로 추출합니다.
 
 ---
 
 ## 목차
 
-1. [파이프라인](#1-파이프라인)
-2. [파일 구조](#2-파일-구조)
+1. [파이프라인 개요](#1-파이프라인-개요)
+2. [폴더 구조](#2-폴더-구조)
 3. [설치](#3-설치)
 4. [사용 방법](#4-사용-방법)
-5. [주요 특징](#5-주요-특징)
-6. [OCR 엔진 비교](#6-ocr-엔진-비교)
-7. [성능 개선 적용 현황](#7-성능-개선-적용-현황)
-8. [지원 사이트 현황](#8-지원-사이트-현황)
+5. [각 단계 상세](#5-각-단계-상세)
+6. [주요 설정](#6-주요-설정)
+7. [지원 사이트](#7-지원-사이트)
+8. [성능 측정](#8-성능-측정)
 
 ---
 
-## 1. 파이프라인
+## 1. 파이프라인 개요
 
 ```
-capture/config.py 에 URL 입력
-        ↓
-capture/main.py          — 전체 페이지 고해상도 캡처 → capture/output/ 저장
-        ↓
-ocr/google_ocr.py        — Google Cloud Vision + 좌표 기반 구조 재조합
-ocr/paddle_ocr.py        — PaddleOCR (PP-OCRv5) + 좌표 기반 구조 재조합
-ocr/easy_ocr.py          — EasyOCR + 좌표 기반 구조 재조합
-ocr/upstage_ocr.py       — Upstage OCR API + 좌표 기반 구조 재조합
-ocr/upstage_dp.py        — Upstage Document Parse Enhanced (실험용)
-        ↓
-ocr/output/{엔진명}/      — 엔진별 텍스트 추출 결과 저장
+crawl/urls.txt 에 URL 입력
+        │
+        ▼
+[ 1단계 ] crawl/crawler.py   — Playwright로 상품 페이지 크롤링
+        │  · DOM 텍스트 (dom.txt)
+        │  · 표 구조 (tables.json / tables.txt)
+        │  · 상품 본문 DOM 텍스트 (product_dom.txt)
+        │  · 상품 본문 스크린샷 (product.png)
+        │  · OCR 대상 이미지/Canvas (assets/*.png)
+        │
+        ▼   crawl/output/capture_YYYYMMDD_HHMMSS/
+        │
+        ▼
+[ 2단계 ] ocr/paddle_ocr.py  — PaddleOCR로 이미지 텍스트 추출
+        │  · assets/*.png, product.png 대상
+        │  · 타일 분할 → 좌표 기반 행·열 재조합 → IOU 중복 제거
+        │  · 상품별 ocr_combined.txt 생성
+        │
+        ▼   ocr/output/capture_YYYYMMDD_HHMMSS/
+        │
+        ▼
+[ 3단계 ] extract/extract_info.py  — 상품 정보 추출
+           · Qwen(Ollama) LLM으로 상품명·모델번호·사이즈·사양 추출
+           · Ollama 미설치 또는 실패 시 규칙 기반(정규식/키워드)으로 자동 폴백
+           · products_summary.json / products_summary.txt 생성
+
+           extract/output/capture_YYYYMMDD_HHMMSS/
 ```
+
+`main.py`를 실행하면 3단계가 순서대로 자동 실행됩니다.  
+각 단계의 스크립트를 직접 실행하면 해당 단계만 독립적으로 수행할 수 있습니다.
 
 ---
 
-## 2. 파일 구조
+## 2. 폴더 구조
 
 ```
-├── capture/
-│   ├── main.py              # 웹 페이지 캡처 (Playwright)
-│   ├── config.py            # URL 목록 및 캡처 설정
-│   └── output/              # 캡처 이미지 저장 (main.py 실행 결과)
+URL-bot/
+├── main.py                      # 전체 파이프라인 실행 진입점
+│
+├── crawl/
+│   ├── crawler.py               # Playwright 크롤링 (1단계)
+│   ├── config.py                # 크롤링 설정 (브라우저, 사이트 선택자 등)
+│   ├── urls.txt                 # 캡처 대상 URL 목록
+│   ├── chrome_profiles/         # Playwright 영구 Chrome 프로필 (세션 재사용)
+│   └── output/
+│       └── capture_YYYYMMDD_HHMMSS/
+│           └── {index}_{domain}/
+│               ├── dom.txt              # 전체 페이지 DOM 텍스트
+│               ├── tables.json          # 표 구조 (JSON)
+│               ├── tables.txt           # 표 구조 (탭 구분 텍스트)
+│               ├── product_dom.txt      # 상품 본문 DOM 텍스트
+│               ├── product.png          # 상품 본문 스크린샷
+│               ├── assets/              # OCR 대상 이미지·Canvas
+│               │   └── asset_001_img.png
+│               ├── assets.json          # 에셋 메타데이터
+│               └── metadata.json        # URL, 상태, 소요시간 등
 │
 ├── ocr/
-│   ├── google_ocr.py        # Google Cloud Vision OCR
-│   ├── paddle_ocr.py        # PaddleOCR (PP-OCRv5 한국어)
-│   ├── easy_ocr.py          # EasyOCR (한국어 + 영어)
-│   ├── upstage_ocr.py       # Upstage OCR API
-│   ├── upstage_dp.py        # Upstage Document Parse Enhanced (실험용)
+│   ├── paddle_ocr.py            # PaddleOCR 추출 (2단계)
+│   ├── config.py                # OCR 설정 (타일 크기, 임계값 등)
 │   └── output/
-│       ├── google_ocr/      # Google Vision 추출 결과 (.txt)
-│       ├── paddle_ocr/      # PaddleOCR 추출 결과 (.txt)
-│       ├── easy_ocr/        # EasyOCR 추출 결과 (.txt)
-│       ├── upstage_ocr/     # Upstage OCR 추출 결과 (.txt)
-│       └── upstage_dp/      # Upstage Document Parse 결과 (.md)
+│       └── capture_YYYYMMDD_HHMMSS/
+│           └── {index}_{domain}/
+│               ├── ocr_text/            # 이미지별 OCR 텍스트
+│               └── ocr_combined.txt     # 상품별 OCR 텍스트 통합본
 │
-├── .env                     # API 키 (git 제외)
-├── requirements.txt         # 의존성 패키지
+├── extract/
+│   ├── extract_info.py          # 상품 정보 추출 오케스트레이터 (3단계)
+│   ├── qwen_extract.py          # Ollama/Qwen LLM 추출 모듈
+│   ├── config.py                # 추출 설정 (키워드, LLM 파라미터 등)
+│   └── output/
+│       └── capture_YYYYMMDD_HHMMSS/
+│           ├── products_summary.json    # 추출 결과 (JSON)
+│           └── products_summary.txt     # 추출 결과 (사람이 읽기 좋은 형식)
+│
+├── .env                         # API 키 등 환경변수 (git 제외)
+├── requirements.txt
 └── .gitignore
 ```
 
@@ -69,139 +107,132 @@ ocr/output/{엔진명}/      — 엔진별 텍스트 추출 결과 저장
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium
+playwright install chrome
 ```
 
-### 3-1. API 키 설정
+### Ollama + Qwen 설치 (LLM 추출용)
 
-프로젝트 루트에 `.env` 파일을 생성합니다:
-
-```
-UPSTAGE_API_KEY=your_upstage_api_key_here
-
-# Google 인증 경로 (미설정 시 gcloud ADC 자동 감지)
-# GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\application_default_credentials.json
-```
-
-### 3-2. Google Cloud Vision 인증
-
-gcloud CLI 설치 후 아래 명령어로 인증합니다:
+[Ollama](https://ollama.com) 설치 후 모델을 받습니다:
 
 ```bash
-gcloud auth application-default login
+ollama pull qwen2.5:3b
 ```
 
-> `.env`에 `GOOGLE_APPLICATION_CREDENTIALS` 경로를 명시해도 되고, 미설정 시 gcloud ADC를 자동 감지합니다.
+Ollama가 없거나 꺼져 있으면 LLM 추출을 건너뛰고 규칙 기반 추출로 자동 폴백합니다.
 
 ---
 
 ## 4. 사용 방법
 
-### 4-1. URL 설정
+### 1. URL 설정
 
-`capture/config.py`에 캡처할 URL을 추가합니다:
+`crawl/urls.txt`에 캡처할 URL을 한 줄에 하나씩 입력합니다:
 
-```python
-TARGET_URLS = [
-    "https://example-mro-site.com/product/12345",
-    ...
-]
+```
+https://kr.misumi-ec.com/vona2/detail/110302634310/
+https://www.festo.com/kr/ko/a/8001234/
+# 주석 처리된 줄은 무시됩니다
 ```
 
-### 4-2. 캡처 실행
+### 2. 전체 파이프라인 실행
 
 ```bash
-cd capture
 python main.py
 ```
 
-`capture/output/capture_YYYYMMDD_HHMMSS/` 폴더에 PNG 이미지로 저장됩니다.
+크롤링 → OCR → 상품정보 추출이 순서대로 자동 실행됩니다.
 
-### 4-3. OCR 실행
-
-원하는 엔진을 선택해 실행합니다:
+### 3. 단계별 개별 실행
 
 ```bash
-cd ocr
-python google_ocr.py      # Google Cloud Vision (정확도 최고, 유료)
-python paddle_ocr.py      # PaddleOCR PP-OCRv5 (무료 대안, Google Vision 수준)
-python easy_ocr.py        # EasyOCR (무료, 한국어 오인식 주의)
-python upstage_ocr.py     # Upstage OCR API (유료)
-python upstage_dp.py      # Upstage Document Parse (실험용, 단일 이미지 처리)
+# 크롤링만
+python crawl/crawler.py
+
+# OCR만 (crawl/output의 최신 폴더를 자동으로 사용)
+python ocr/paddle_ocr.py
+
+# 정보 추출만
+python extract/extract_info.py
 ```
 
-결과는 `ocr/output/{엔진명}/capture_YYYYMMDD_HHMMSS/` 폴더에 저장됩니다.  
-(`upstage_dp`만 `.md` 형식, 나머지는 `.txt`)
+---
+
+## 5. 각 단계 상세
+
+### 1단계: 크롤링 (crawl/crawler.py)
+
+Playwright로 실제 Chrome 브라우저를 제어해 상품 페이지를 수집합니다.
+
+- **세션 재사용**: `crawl/chrome_profiles/`에 Chrome 영구 프로필을 저장해 로그인·쿠키 상태를 다음 실행에도 유지합니다.
+- **봇 차단 대응**: Cloudflare 등 차단 화면 감지 시 브라우저를 화면에 띄우고 수동 확인 완료까지 대기합니다.
+- **쿠키 동의 자동 처리**: "동의", "수락" 버튼을 자동으로 클릭합니다.
+- **더보기 자동 펼치기**: "상세정보 더보기", "view more" 등의 버튼을 자동으로 클릭합니다.
+- **lazy-load 대응**: 스크롤로 지연 로딩 콘텐츠를 완전히 불러온 후 수집합니다.
+- **이중 수집**: DOM 텍스트·표는 직접 파싱하고, 텍스트를 담은 이미지·Canvas는 별도 캡처합니다.
+- **표 병합 처리**: 열 고정으로 분리 렌더링된 표(MISUMI 등)를 하나로 다시 합칩니다.
+
+설정 파일 `crawl/config.py`에서 사이트별 선택자, 봇 차단 대기 시간, OCR 이미지 최소 크기 등을 조정할 수 있습니다.
+
+### 2단계: OCR (ocr/paddle_ocr.py)
+
+PaddleOCR(PP-OCRv5)로 이미지에서 텍스트를 추출합니다.
+
+- **대상**: `assets/*.png`(이미지·Canvas) + `product.png`(상품 본문 스크린샷)
+- **타일 분할**: 긴 이미지를 일정 높이로 잘라 처리하고 y좌표 오프셋으로 보정합니다.
+- **IOU 중복 제거**: 타일 경계에서 중복 인식된 단어를 신뢰도 기준으로 제거합니다.
+- **좌표 기반 행·열 재조합**: 단어별 바운딩 박스 y좌표로 행을 그룹핑하고, x좌표 간격이 넓으면 탭으로 구분해 표 구조를 보존합니다.
+- **캐시**: 이미 처리한 이미지는 재실행 시 건너뜁니다(`config.py`에서 끌 수 있음).
+
+### 3단계: 정보 추출 (extract/extract_info.py)
+
+크롤링·OCR 결과를 종합해 상품별 핵심 정보를 추출합니다.
+
+**추출 항목**: 상품명, 모델번호, 사이즈, 사양
+
+**추출 방식 (우선순위)**:
+
+1. **Qwen LLM (Ollama)**: DOM·표·OCR 텍스트를 프롬프트로 넘겨 JSON으로 추출. `extract/config.py`에서 모델과 파라미터 조정 가능.
+2. **규칙 기반 폴백**: Ollama 미설치·오류·빈 응답 시 자동으로 전환. 정규식 패턴과 키워드 매칭으로 라벨:값 쌍을 찾아 분류.
 
 ---
 
-## 5. 주요 특징
+## 6. 주요 설정
 
-- **고해상도 캡처**: `device_scale_factor=2`로 2배 해상도 캡처 (OCR 정확도 향상)
-- **팝업 자동 처리**: 쿠키 동의 배너, 오버레이 자동 제거
-- **lazy-load 대응**: 스크롤 기반 콘텐츠 완전 로드 후 캡처
-- **좌표 기반 OCR**: 단어별 바운딩 박스를 활용해 표 구조 행·열을 공간적으로 재조합 (5개 엔진 공통)
-- **타일 분할 처리**: 대용량 이미지를 타일로 분할 후 좌표 보정 병합
-- **타일 오버랩**: 타일 경계 절단 방지를 위한 150px 겹침 + IOU 중복 제거 (PaddleOCR, EasyOCR)
-- **신뢰도 필터링**: 낮은 신뢰도 노이즈 토큰 자동 제거 (PaddleOCR 0.4, EasyOCR 0.3)
-- **API 키 보안**: `.env` 기반 관리 (코드 하드코딩 없음)
-- **봇 차단 도메인 필터링**: 네이버, 쿠팡 등 자동 제외 (`config.py`에서 관리)
+각 단계별 `config.py`에서 동작을 조정합니다.
+
+| 파일 | 주요 설정 |
+|---|---|
+| `crawl/config.py` | `HEADLESS`, `DEFAULT_VIEWPORT`, `EXCLUDE_DOMAINS`, 사이트별 선택자, OCR 이미지 최소 크기 |
+| `ocr/config.py` | `OCR_TILE_HEIGHT`, `OCR_CONFIDENCE_THRESHOLD`, `OCR_CACHE_ENABLED`, PaddleOCR 엔진 파라미터 |
+| `extract/config.py` | `EXTRACTION_ENGINE` (`"qwen"` 또는 `"rules"`), `OLLAMA_MODEL`, `SPEC_LABEL_KEYWORDS` |
 
 ---
 
-## 6. OCR 엔진 비교
+## 7. 지원 사이트
 
-### 6-1. 표준 항목별 성능 비교
-
-| 비교 항목 | Google Vision | PaddleOCR | EasyOCR | Upstage OCR | Upstage DP |
-|---|:---:|:---:|:---:|:---:|:---:|
-| 한국어 OCR 정확도 | ★★★★★ | ★★★★☆ | ★★☆☆☆ | ★★★★☆ | ★★★☆☆ |
-| 표 구조 추출 | ★★★★★ | ★★★★★ | ★★★☆☆ | ★★★☆☆ | ★☆☆☆☆ |
-| 한·영·숫자 혼합 인식 | ★★★★★ | ★★★★☆ | ★★☆☆☆ | ★★★★☆ | ★★★☆☆ |
-| 대용량 이미지 처리 | ★★★★☆ | ★★★★★ | ★★★★★ | ★★★☆☆ | ★★☆☆☆ |
-| 비용 효율성 | ★★☆☆☆ | ★★★★★ | ★★★★★ | ★★★☆☆ | ★★☆☆☆ |
-| 설치·환경 설정 | ★★★★☆ | ★★★☆☆ | ★★★★★ | ★★★★☆ | ★★★★☆ |
-| **종합 평점** | **★★★★★** | **★★★★☆** | **★★★☆☆** | **★★★☆☆** | **★★☆☆☆** |
-
-> **표 구조 추출** — Gmarket 규격표(9행) 기준, PaddleOCR은 Google Vision과 동등 수준으로 추출  
-> **EasyOCR 한국어** — 좌표 기반 구조는 정상이나 문자 자체 오인식 심각 (`mm→rnrn`, `100→IUU`)  
-> **Upstage DP 표 추출** — 셀이 개별 텍스트 블록으로 분해되어 행·열 구조 완전 소실  
-> **비용 효율성** — 무료(PaddleOCR·EasyOCR) = ★★★★★, 유료 API 비교는 Google Vision 대비 상대적 평가
-
-### 6-2. 엔진별 장단점
-
-| 엔진 | 비용 | 장점 | 단점 |
-|---|---|---|---|
-| **Google Vision** | 유료 (API) | 정확도 최고, 한국어·영문·숫자 안정적, 타일 경계 처리 우수 | 비용 발생, 네트워크 의존 |
-| **PaddleOCR** | 무료 | PP-OCRv5 한국어 모델로 Google Vision 수준, 로컬 실행 | 초기 모델 다운로드 필요, Windows에서 환경변수 설정 필요 (`FLAGS_use_mkldnn=0`) |
-| **EasyOCR** | 무료 | 설치 간단, 다국어 지원 | 한국어+숫자+영문 혼합 시 오인식 심각 (`mm→rnrn`, `100→IUU`, `1/2→12`) |
-| **Upstage OCR** | 유료 (API) | 한국어 특화 | 복잡한 시각 표에서 Google Vision 대비 낮은 정확도 |
-| **Upstage DP** | 유료 (API) | 문서 파싱 특화, Markdown 출력 | 웹 스크린샷 대용량 처리 불가, 표 구조 복원 실패, 타일링 없음 |
+| 사이트 | 크롤링 |
+|---|:---:|
+| Misumi (kr.misumi-ec.com) | ✅ |
+| Festo (www.festo.com) | ✅ |
+| Swagelok (products.swagelok.com) | ✅ |
+| Siemens Industry Mall | ✅ |
+| Navimro (www.navimro.com) | ✅ |
+| Danawa (prod.danawa.com) | ✅ |
+| 네이버, 쿠팡, Gmarket, Auction | 🚫 자동 제외 (`EXCLUDE_DOMAINS`) |
 
 ---
 
-## 7. 성능 개선 적용 현황
+## 8. 성능 측정
 
-| 개선 항목 | Google Vision | Upstage OCR | PaddleOCR | EasyOCR | Upstage DP |
-|---|:---:|:---:|:---:|:---:|:---:|
-| 좌표 기반 행 재조립 | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 탭 삽입 (열 구분) | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 타일링 (대용량 처리) | ✅ 8MB↑ | ✅ 5MB↑ | ✅ 항상 | ✅ 항상 | ❌ 리사이즈만 |
-| 타일 오버랩 150px | ❌ | ❌ | ✅ | ✅ | N/A |
-| IOU 중복 제거 | ❌ | ❌ | ✅ | ✅ | N/A |
-| 신뢰도 필터링 | ❌ | ❌ | ✅ 0.4 | ✅ 0.3 | N/A |
-| 모델 업그레이드 | N/A | N/A | ✅ (3.7.0 기본값) | ❌ | ✅ nightly |
+> 환경: Windows 11, Chrome (non-headless)  
 
----
-
-## 8. 지원 사이트 현황
-
-| 사이트 | 캡처 | OCR |
-|---|---|---|
-| Misumi (kr.misumi-ec.com) | ✅ | ✅ |
-| Festo (www.festo.com) | ✅ | ✅ |
-| Gmarket (item.gmarket.co.kr) | ✅ | ✅ |
-| Swagelok (products.swagelok.com) | ✅ | ✅ |
-| Siemens Industry Mall | ✅ | ✅ |
-| Auction (itempage3.auction.co.kr) | ⚠️ Cloudflare 봇 탐지 | — |
-| 네이버, 쿠팡 | 🚫 차단 (자동 제외) | — |
+| 사이트 | Crawl | OCR | Extract | 총합 |
+|---|---:|---:|---:|---:|
+| Misumi | 18.6초 | | | |
+| Festo | 11.2초 | | | |
+| Swagelok | 9.6초 | | | |
+| Siemens Industry Mall | 9.5초 | | | |
+| Navimro (1) | 36.9초 | | | |
+| Danawa | 87.6초 | | | |
+| Navimro (2) | 40.9초 | | | |
+| **단계 합계** | **218.7초** | | | |

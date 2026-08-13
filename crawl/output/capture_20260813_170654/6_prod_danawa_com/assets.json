@@ -1,0 +1,47 @@
+[
+  {
+    "file": "c:\\Users\\user\\Desktop\\project\\URL-bot\\crawl\\output\\capture_20260813_170654\\6_prod_danawa_com\\assets\\asset_001_img.png",
+    "tag": "img",
+    "src": "https://img.danuri.io/catalog-image/645/234/014/50c3b875a23b42bdbb3748aa4b45ec97.jpg?shrink=330:*&_v=20260813150537",
+    "alt": "아이리버 EQwear-EV3 버티컬 무선 마우스 (화이트)_이미지",
+    "frame_index": 0,
+    "width": 340,
+    "height": 340
+  },
+  {
+    "file": "c:\\Users\\user\\Desktop\\project\\URL-bot\\crawl\\output\\capture_20260813_170654\\6_prod_danawa_com\\assets\\asset_002_img.png",
+    "tag": "img",
+    "src": "https://img.danawa.com/img/prod/ajungdang_banner/blog_top_1262x91_v260731.jpg",
+    "alt": "우리 집 조건에 맞는 인터넷 요금·혜택 비교 - 최대 지원금보다 월요금과 결합 조건을 먼저 확인하세요",
+    "frame_index": 0,
+    "width": 1262,
+    "height": 90
+  },
+  {
+    "file": "c:\\Users\\user\\Desktop\\project\\URL-bot\\crawl\\output\\capture_20260813_170654\\6_prod_danawa_com\\assets\\asset_003_img.png",
+    "tag": "img",
+    "src": "https://img.danuri.io/catalog-content/images/8fc/8207731_bd3103f108574432953662933fa521d5.jpeg",
+    "alt": "",
+    "frame_index": 0,
+    "width": 860,
+    "height": 7348
+  },
+  {
+    "file": "c:\\Users\\user\\Desktop\\project\\URL-bot\\crawl\\output\\capture_20260813_170654\\6_prod_danawa_com\\assets\\asset_004_img.png",
+    "tag": "img",
+    "src": "https://img.danuri.io/catalog-content/images/8fc/8207731_0602465d2631469faf7661c71933fcc3.jpeg",
+    "alt": "",
+    "frame_index": 0,
+    "width": 860,
+    "height": 7998
+  },
+  {
+    "file": "c:\\Users\\user\\Desktop\\project\\URL-bot\\crawl\\output\\capture_20260813_170654\\6_prod_danawa_com\\assets\\asset_005_img.png",
+    "tag": "img",
+    "src": "https://img.danuri.io/catalog-content/images/8fc/8207731_ce00e21401764174807faf3368030605.jpeg",
+    "alt": "",
+    "frame_index": 0,
+    "width": 860,
+    "height": 7948
+  }
+]

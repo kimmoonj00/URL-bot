@@ -7,8 +7,8 @@ __pycache__/
 .venv/
 venv/
 
-#Capture 결과물
-# capture/output/
+# Claude Code 내부 데이터
+.claude/
 
-# OCR 결과물
-# ocr/output/
+# Chrome 영구 프로필 (캐시/세션 파일 수백 개)
+chrome_profiles/
