@@ -1,0 +1,8 @@
+{
+  "model": "qwen2.5:3b",
+  "elapsed_sec": 44.1,
+  "name": "DPU - Device Programmer I Test Unit for Fire Finder XLS and MSL Devices",
+  "specs": {
+    "모델명": "DPU"
+  }
+}

@@ -29,6 +29,7 @@ from capture import capture_url
 from llm import extract_product_info_llm
 from ocr import (
     PaddleOCREngine,
+    correct_spacing,
     filter_by_confidence,
     reconstruct_table,
     run_tiled,
@@ -81,7 +82,9 @@ def run() -> None:
         boxes = filter_by_confidence(run_tiled(engine, capture.image_path), CONFIDENCE_THRESHOLD)
 
         rows = reconstruct_table(boxes)
-        raw_text = "\n".join("\t".join(cell for cell in row) for row in rows)
+        raw_text = "\n".join(
+            "\t".join(correct_spacing(cell) for cell in row) for row in rows
+        )
         text_path = RESULT_DIR / f"{capture.image_path.stem}.txt"
         text_path.write_text(raw_text, encoding="utf-8")
         print(f"  -> OCR 텍스트 저장: {text_path}")

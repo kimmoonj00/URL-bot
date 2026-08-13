@@ -1,0 +1,60 @@
+Register now!	> Login
+IND
+SIEMENS
+M
+Industry Mall
+I	Welcome to our product catalog and online ordering
+System
+NDUuSTRyMAL
+Industry Mall	English	Contact Us	Help	Site Explorer	Product Search
+? Home I Catalog 2 Device Programming Units and Accessories 1 500-033260	Catalog Shopping Cart! Tools
+[|	DPUI500-033260
+Buy product
+DPU - Device Programmer I Test Unit for Fire Finder XLS and MSL Devices Model DPU
+is a compact portable and menu-driven accessory used in many Siemens fire systems for	Quantity	1 1 Piece
+electronically programming and testing detectors easily and reliably Model Dpu
+11<	eliminates the need for cumbersome unreliable mechanical programming methods Such	Itz Add to cart
+as dials or rotary switches> thus reducing installation and service costs Model DPu
+electronically programs and tests the detector prior to installation via the interface's
+8888	microcomputer-chip non-volatile memory
+Frequently bought together:
+List Price	I Show prices
+Customer Price	I Show prices
+Availability
+Product
+Product Number Market Facing Number]	DPU1500-033260
+Product Description	DPU - Device Programmer I Test Unit for Fire Finder XLS	DPU-011500-033990
+and MSL Devices Model DPU is a compact portable and
+menu-driven accessory used in many Siemens fire systems	DPU-C1 - Carrying Case for DPU Model DPU-C1 is
+for electronically programming and testing detectors easily	a protective carrying case for the Siemens
+and reliably Model DpU eliminates the need for	Programmer I Tester Device Model DPU
+Cumbersome unreliable mechanical programming methods
+Such as dials or rotary switches] thus reducing installation
+and service costs Model DPU electronically programs and
+tests the detector prior to installation via the interface's
+microcomputer-chip non-volatile memory
+Product family	* Device Programming Units and Accessories
+Product Lifecycle PLM	PM30O:Active Product
+Price data	5C1-81500-033040
+Price Group	SCM-8 - Switch Control Module [8 Switches]
+List Price	I Show prices	Designed for use in the Siemens Modular lor
+FireFinder fire alarm control panel Model SCM-8 is
+Customer Price	* Show prices	an option module that provides manual control of
+the Emergency Voice Evacuation System or manua!
+Metal Factor	None	fire system control Each Model SCM-8 module
+provides eight [8] momentary push button switches
+Delivery information	and 16 LEDs to indicate their status Each switch is
+Export Control Regulations	AL: N I ECCN : EAR99	assigned two C22 LEDs and a label to indicate the
+programmed usage with a label One of the LEDs
+Days to Stock	1 Day!Days	assigned to each switch is a dual-color LED used to
+Net weight Qb]	432116	indicate what type of signal is active and may also
+be lighted steady or flashing to further indicate
+Packaging Dimension	1895X2575%670	System status For example zones active to the
+Package size unit of measure	INH	Evacuation audio channel will have the LED lighted
+RED and steady; zones active to the Alert audio
+Quantity Unit	1 Piece	channel will have the LED lighted RED and flashing:
+Packaging Quantity	~	Zones selected for paging will have the LED lighted
+GREEN and flashing until the microphone key is
+Additional Product Information	Pressed: when the Zone transfer confirmation
+드A시	message is received by the panel's command
+Aat aailahla

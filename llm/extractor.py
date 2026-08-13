@@ -25,9 +25,9 @@ SYSTEM_PROMPT = """너는 이커머스 상품 상세페이지를 OCR로 읽은 �
 {"name": "상품명 문자열 또는 null", "specs": {"규격 라벨": "값", ...}}"""
 
 
-def extract_product_info_llm(raw_text: str) -> ProductInfo:
+def extract_product_info_llm(raw_text: str, model: str = MODEL) -> ProductInfo:
     response = ollama.chat(
-        model=MODEL,
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": raw_text},

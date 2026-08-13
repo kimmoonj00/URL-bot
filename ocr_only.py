@@ -16,7 +16,13 @@ if not sys.flags.utf8_mode:
 import time
 from pathlib import Path
 
-from ocr import PaddleOCREngine, filter_by_confidence, reconstruct_table, run_tiled
+from ocr import (
+    PaddleOCREngine,
+    correct_spacing,
+    filter_by_confidence,
+    reconstruct_table,
+    run_tiled,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULT_DIR = BASE_DIR / "output" / "results"
@@ -39,7 +45,9 @@ def run(image_paths: list[str]) -> None:
         elapsed = time.perf_counter() - start
 
         rows = reconstruct_table(boxes)
-        raw_text = "\n".join("\t".join(cell for cell in row) for row in rows)
+        raw_text = "\n".join(
+            "\t".join(correct_spacing(cell) for cell in row) for row in rows
+        )
         text_path = RESULT_DIR / f"{path.stem}.txt"
         text_path.write_text(raw_text, encoding="utf-8")
 

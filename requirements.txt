@@ -8,3 +8,6 @@ paddleocr==3.0.0
 Pillow>=10.0.0
 numpy
 ollama>=0.6.0
+# 주의: pykospacing은 TensorFlow를 딸려와 numpy를 2.x로 올려버려서
+# paddlex(numpy==1.24.4 고정)와 충돌한다. 절대 추가하지 말 것.
+kiwipiepy
