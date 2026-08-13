@@ -115,6 +115,11 @@ OCR_TEXT_DETECTION_MODEL_NAME = "PP-OCRv5_mobile_det"
 MAX_OCR_ASSETS_PER_PAGE = 60
 MIN_OCR_ASSET_WIDTH = 250
 MIN_OCR_ASSET_HEIGHT = 80
+# 상품 영역 스크린샷(product.png)에 딸린 DOM 텍스트(product_dom.txt)가 이 글자 수
+# 이상이면 이미 텍스트를 충분히 확보했다고 보고 product.png의 OCR을 생략한다
+# (paddle_ocr.py의 find_ocr_targets). 너무 작으면 텍스트가 거의 없는 페이지도
+# OCR을 건너뛰어 정보가 누락되고, 너무 크면 불필요한 OCR로 시간을 낭비한다.
+OCR_PRODUCT_SCREENSHOT_MIN_DOM_CHARS = 300
 # 현재 환경의 PaddleOCR/NumPy/SciPy 버전 충돌을 피하고 EasyOCR만 사용한다.
 # 패키지 호환성을 정리한 뒤 필요할 때 True로 바꿀 수 있다.
 OCR_USE_PADDLE_FALLBACK = False
