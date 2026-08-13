@@ -21,6 +21,8 @@ if not sys.flags.utf8_mode:
 
 import csv
 import json
+import random
+import time
 from pathlib import Path
 
 from capture import capture_url
@@ -59,7 +61,14 @@ def run() -> None:
     engine = PaddleOCREngine(lang="korean")
     summary_rows = []
 
-    for url in urls:
+    for idx, url in enumerate(urls):
+        if idx > 0:
+            # 요청 간격이 일정하면 봇 탐지에 걸리기 쉬워, URL 사이에 사람처럼
+            # 불규칙한 간격을 둔다.
+            wait_sec = random.uniform(3, 7)
+            print(f"[대기] {wait_sec:.1f}초")
+            time.sleep(wait_sec)
+
         print(f"[캡쳐] {url}")
         capture = capture_url(url, CAPTURE_DIR)
         if not capture.ok:

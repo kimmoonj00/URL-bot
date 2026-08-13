@@ -113,6 +113,14 @@ HIDE_STICKY_SCRIPT = """
     })()
 """
 
+# navigator.webdriver=true는 Playwright/Selenium 등 자동화 브라우저가 표준으로
+# 노출하는 값이라 봇 탐지 시스템이 가장 먼저 확인하는 신호다. headless=False +
+# 실제 Chrome을 쓰더라도 이 값은 그대로 남아있어, 페이지 스크립트가 실행되기
+# 전에 매 페이지 로드마다 덮어써서 숨긴다.
+STEALTH_INIT_SCRIPT = """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+"""
+
 
 @dataclass
 class CaptureResult:
@@ -258,7 +266,7 @@ def _hide_sticky_elements(page: Page) -> None:
         pass
 
 
-def _wait_for_page_fully_loaded(page: Page, max_wait_sec: int = 15) -> None:
+def _wait_for_page_fully_loaded(page: Page, max_wait_sec: int = 10) -> None:
     """load 이벤트 -> networkidle -> 로딩 스피너/스켈레톤 사라짐 순으로 기다린다.
 
     goto()는 domcontentloaded까지만 기다리고 넘어오므로(=DOM 파싱만 끝난
@@ -269,6 +277,13 @@ def _wait_for_page_fully_loaded(page: Page, max_wait_sec: int = 15) -> None:
     때까지 한 번 더 기다려 이를 보완한다. 각 단계는 실패해도 캡쳐 자체를
     중단시키지 않는다 (navimro처럼 백그라운드 요청이 끝없이 이어지는 페이지
     대응).
+
+    load/networkidle는 여기서 실패해도 뒤이은 _autoscroll()의 구간별 고정
+    대기(최소 9초)가 실제 렌더링 완료를 보장하는 안전망 역할을 하므로, 여기
+    두 단계에 굳이 긴 타임아웃(예: 30초)을 줄 필요가 없다. 짧게(기본 10초)
+    시도만 해보고 안 되면 바로 다음 단계로 넘어가 불필요한 대기 시간을
+    없앤다 (예: navimro처럼 절대 load/networkidle에 도달 못 하는 페이지에서
+    최대 60초까지 낭비되던 것을 20초로 줄임).
     """
     try:
         page.wait_for_load_state("load", timeout=max_wait_sec * 1000)
@@ -343,6 +358,7 @@ def _open_browser(p, domain: str, scale: float):
             args=["--start-maximized"],
         )
         page = context.pages[0] if context.pages else context.new_page()
+        page.add_init_script(STEALTH_INIT_SCRIPT)
         return context, page
 
     browser = p.chromium.launch(
@@ -357,6 +373,7 @@ def _open_browser(p, domain: str, scale: float):
         viewport={"width": 1440, "height": 900},
         device_scale_factor=scale,
     )
+    page.add_init_script(STEALTH_INIT_SCRIPT)
     return browser, page
 
 
@@ -383,7 +400,7 @@ def capture_url(
             print(f"    [타이밍] 브라우저 실행: {t1 - t0:.1f}초")
 
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
-            _wait_for_page_fully_loaded(page, max_wait_sec=timeout_ms // 1000)
+            _wait_for_page_fully_loaded(page)
             title = page.title()
             t2 = time.perf_counter()
             print(f"    [타이밍] 페이지 로드: {t2 - t1:.1f}초")
