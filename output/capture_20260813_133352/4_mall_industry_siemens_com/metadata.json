@@ -1,0 +1,13 @@
+{
+  "url": "https://mall.industry.siemens.com/mall/en/buildingtechnologiesusa/Catalog/Product?mlfb=500-033260&SiepCountryCode=ZU",
+  "status": "captured",
+  "title": "Product Details - Industry Mall - Siemens BuildingTechnologiesUSA",
+  "final_url": "https://mall.industry.siemens.com/mall/en/buildingtechnologiesusa/Catalog/Product?mlfb=500-033260&SiepCountryCode=ZU",
+  "table_count": 7,
+  "ocr_asset_count": 0,
+  "ocr_assets_manifest": "assets.json",
+  "screenshot": "full_page.png",
+  "product_screenshot": "product.png",
+  "product_selector": "#content",
+  "elapsed_seconds": 22.5
+}
