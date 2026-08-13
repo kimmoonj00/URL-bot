@@ -13,7 +13,7 @@ import ollama
 
 from ocr.parser import ProductInfo
 
-MODEL = "qwen2.5:1.5b"
+MODEL = "qwen2.5:3b"
 
 SYSTEM_PROMPT = """너는 이커머스 상품 상세페이지를 OCR로 읽은 텍스트에서 상품 정보를 추출하는 도우미다.
 입력 텍스트에는 실제 상품 정보 외에 로그인/회원가입/검색/장바구니, 네비게이션 메뉴,
