@@ -1,0 +1,32 @@
+{
+  "url": "https://www.festo.com/kr/ko/a/34411/",
+  "status": "captured",
+  "title": "솔레노이드 코일 MSFG-24/42-50/60-OD | Festo KR",
+  "final_url": "https://www.festo.com/kr/ko/a/34411/",
+  "content_length": 3496,
+  "table_count": 1,
+  "ocr_asset_count": 0,
+  "ocr_assets_manifest": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_115321\\2_www_festo_com\\assets.json",
+  "product_screenshot": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_115321\\2_www_festo_com\\product.png",
+  "product_selector": "main",
+  "product_screenshot_preprocess": {
+    "applied": true,
+    "action": "none",
+    "contrast_corrected": false,
+    "original_size": [
+      1485,
+      473
+    ],
+    "processed_size": [
+      1485,
+      473
+    ]
+  },
+  "preprocess_summary": {
+    "upscaled": 0,
+    "downscaled": 0,
+    "none": 1,
+    "disabled_or_failed": 0
+  },
+  "elapsed_seconds": 12.3
+}

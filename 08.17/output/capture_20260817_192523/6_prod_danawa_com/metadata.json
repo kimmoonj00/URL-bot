@@ -1,0 +1,20 @@
+{
+  "url": "https://prod.danawa.com/info/?pcode=14234645&keyword=EQwear-EV3&cate=112787",
+  "status": "captured",
+  "title": "아이리버 EQwear-EV3 버티컬 무선 마우스 (화이트) : 다나와 가격비교",
+  "final_url": "https://prod.danawa.com/info/?pcode=14234645&keyword=EQwear-EV3&cate=112787",
+  "content_length": 10236,
+  "table_count": 4,
+  "ocr_asset_count": 5,
+  "ocr_assets_manifest": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\6_prod_danawa_com\\assets.json",
+  "product_screenshot": null,
+  "product_selector": null,
+  "product_screenshot_preprocess": null,
+  "preprocess_summary": {
+    "upscaled": 2,
+    "downscaled": 3,
+    "none": 0,
+    "disabled_or_failed": 0
+  },
+  "elapsed_seconds": 98.6
+}

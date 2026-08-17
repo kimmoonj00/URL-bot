@@ -1,0 +1,46 @@
+[
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_115321\\3_products_swagelok_com\\assets\\asset_001_img.png",
+    "tag": "img",
+    "src": "https://www.swagelok.com/assets/images/product_images/large/T-813-1.png?impolicy=product",
+    "alt": "PTFE 전위 페럴, 8mm 스웨즈락 튜브 피팅용",
+    "frame_index": 0,
+    "width": 251,
+    "height": 251,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": true,
+      "original_size": [
+        252,
+        252
+      ],
+      "processed_size": [
+        400,
+        400
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_115321\\3_products_swagelok_com\\assets\\asset_002_img.png",
+    "tag": "img",
+    "src": "https://www.swagelok.com/assets/images/product_images/large/T-813-1.png?impolicy=superZoom",
+    "alt": "",
+    "frame_index": 0,
+    "width": 2400,
+    "height": 2400,
+    "preprocess": {
+      "applied": true,
+      "action": "none",
+      "contrast_corrected": false,
+      "original_size": [
+        2401,
+        2401
+      ],
+      "processed_size": [
+        2401,
+        2401
+      ]
+    }
+  }
+]

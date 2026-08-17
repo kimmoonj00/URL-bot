@@ -1,0 +1,411 @@
+[
+  {
+    "table_index": 1,
+    "rows": [
+      [
+        {
+          "text": "제조회사",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "아이리버 (제조사 웹사이트 바로가기)",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "등록년월",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "2021년 05월",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "연결 방식",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "무선",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "버튼 수",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "DPI+6버튼",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "배터리",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "AA형 1개",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "최대 감도(DPI)",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "4000DPI",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "DPI 변경",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "DPI 변경",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "감응 방식",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "광",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "인터페이스",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "USB",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "용도",
+          "rowspan": 1,
+          "colspan": 4
+        }
+      ],
+      [
+        {
+          "text": "사무용",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "○",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "휠 조정",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "상하",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "마우스 형태",
+          "rowspan": 1,
+          "colspan": 4
+        }
+      ],
+      [
+        {
+          "text": "오른손",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "○",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "버티컬(손목보호)",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "○",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "기능버튼 위치",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "상단",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "스위치 기술",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "무소음 스위치",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "부가 기능",
+          "rowspan": 1,
+          "colspan": 4
+        }
+      ],
+      [
+        {
+          "text": "멀티페어링",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "○",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "마우스 크기(세로x가로x높이)",
+          "rowspan": 1,
+          "colspan": 4
+        }
+      ],
+      [
+        {
+          "text": "세로",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "111.3mm",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "가로",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "76mm",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "높이",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "71.4mm",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "무게",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "90g",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "제품 보증",
+          "rowspan": 1,
+          "colspan": 4
+        }
+      ],
+      [
+        {
+          "text": "A/S 보증기간",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "1년 보증",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "KC인증",
+          "rowspan": 1,
+          "colspan": 4
+        }
+      ],
+      [
+        {
+          "text": "적합성평가인증",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "R-R-jsp-EV3 인증번호 확인",
+          "rowspan": 1,
+          "colspan": 3
+        }
+      ],
+      [
+        {
+          "text": "안전확인인증",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "상세설명 / 판매 사이트 문의 인증번호 확인",
+          "rowspan": 1,
+          "colspan": 3
+        }
+      ]
+    ],
+    "frame_index": 0
+  },
+  {
+    "table_index": 2,
+    "rows": [
+      [
+        {
+          "text": "콘텐츠산업 진흥법에 의한 보호 콘텐츠 제작: (주)커넥트웨이브 콘텐츠 갱신일: 2026.06.29 10:07:22",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ]
+    ],
+    "frame_index": 0
+  },
+  {
+    "table_index": 3,
+    "rows": [
+      [
+        {
+          "text": "아이리버 EQwear-EV3 버티컬 무선 마우스 (화이트) 최저가 30,800원 자세히보기 판매점 : 133개 ㅣ 제조사 : 아이리버 ㅣ 등록월: 2021.05. 콘텐츠산업 진흥법에 의한 보호 콘텐츠 제작: (주)커넥트웨이브 콘텐츠 갱신일: 2026.06.29 10:07:22",
+          "rowspan": 1,
+          "colspan": 1
+        },
+        {
+          "text": "콘텐츠산업 진흥법에 의한 보호 콘텐츠 제작: (주)커넥트웨이브 콘텐츠 갱신일: 2026.06.29 10:07:22",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ],
+      [
+        {
+          "text": "콘텐츠산업 진흥법에 의한 보호 콘텐츠 제작: (주)커넥트웨이브 콘텐츠 갱신일: 2026.06.29 10:07:22",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ]
+    ],
+    "frame_index": 0
+  },
+  {
+    "table_index": 4,
+    "rows": [
+      [
+        {
+          "text": "콘텐츠산업 진흥법에 의한 보호 콘텐츠 제작: (주)커넥트웨이브 콘텐츠 갱신일: 2026.06.29 10:07:22",
+          "rowspan": 1,
+          "colspan": 1
+        }
+      ]
+    ],
+    "frame_index": 0
+  }
+]

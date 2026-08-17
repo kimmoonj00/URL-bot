@@ -1,0 +1,200 @@
+[
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_001_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/ms3/banner/test_main_ban_new_account.png",
+    "alt": "registration_ban",
+    "frame_index": 0,
+    "width": 350,
+    "height": 250,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        350,
+        251
+      ],
+      "processed_size": [
+        558,
+        400
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_002_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/pi/full/K63528032.jpg",
+    "alt": "K63528032",
+    "frame_index": 0,
+    "width": 300,
+    "height": 300,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        301,
+        301
+      ],
+      "processed_size": [
+        400,
+        400
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_003_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/pi/detail/2368521.jpg",
+    "alt": "_상세페이지",
+    "frame_index": 0,
+    "width": 910,
+    "height": 296,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        911,
+        297
+      ],
+      "processed_size": [
+        1227,
+        400
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_004_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/ms3/footer/bnr-footer-exchange2.jpg",
+    "alt": "",
+    "frame_index": 0,
+    "width": 1250,
+    "height": 90,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        1251,
+        91
+      ],
+      "processed_size": [
+        3753,
+        273
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_005_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/ms3/footer/footer-logo.png",
+    "alt": "나비엠알오",
+    "frame_index": 0,
+    "width": 271,
+    "height": 85,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        272,
+        86
+      ],
+      "processed_size": [
+        816,
+        258
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_006_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/ms3/footer/bnr-footer-logo1.jpg",
+    "alt": "클릭하시면 KCP 결제시스템의 유효성을 확인하실 수 있습니다.",
+    "frame_index": 0,
+    "width": 312,
+    "height": 117,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        313,
+        118
+      ],
+      "processed_size": [
+        939,
+        354
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_007_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/ms3/footer/bnr-footer-logo2.jpg",
+    "alt": "정보보호관리체계인증",
+    "frame_index": 0,
+    "width": 312,
+    "height": 117,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        313,
+        118
+      ],
+      "processed_size": [
+        939,
+        354
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_008_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/ms3/footer/bnr-footer-logo3.jpg",
+    "alt": "Comodo PositiveSSL Wildcard",
+    "frame_index": 0,
+    "width": 312,
+    "height": 117,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        313,
+        118
+      ],
+      "processed_size": [
+        939,
+        354
+      ]
+    }
+  },
+  {
+    "file": "c:\\Users\\melon\\Downloads\\product_extractor_3\\output\\capture_20260817_192523\\5_www_navimro_com\\assets\\asset_009_img.png",
+    "tag": "img",
+    "src": "https://img.navimro.com/img/ms3/footer/bnr-footer-logo4.jpg",
+    "alt": "이미지를 클릭하시면 공정거래위원회에 등록된 나비엠알오의 사업자 등록번호를 확인하실 수 있습니다.",
+    "frame_index": 0,
+    "width": 314,
+    "height": 117,
+    "preprocess": {
+      "applied": true,
+      "action": "upscaled",
+      "contrast_corrected": false,
+      "original_size": [
+        315,
+        118
+      ],
+      "processed_size": [
+        945,
+        354
+      ]
+    }
+  }
+]
