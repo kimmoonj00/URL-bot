@@ -3,10 +3,27 @@ playwright>=1.62.0
 
 # ── ocr/ ──────────────────────────────────────────────────────────────────────
 Pillow>=12.3.0
-numpy>=2.0.0
+numpy==1.24.4
+# paddlepaddle/paddleocr는 정확히 3.0.0으로 고정한다 (버전 올리지 말 것):
+#   1. paddlepaddle을 3.0.0보다 올리면 Windows CPU에서 PP-OCR 감지/인식 추론 중
+#      NotImplementedError(oneDNN PIR 속성 변환 미지원) 크래시가 재현된다.
+#   2. paddleocr>=3.7.0(PP-OCRv5/v6 세대)은 한국어 인식 모델이 없어서
+#      lang="korean"이 무시되고, 게다가 text_detection_model_name처럼 모델명을
+#      직접 지정하면 lang/ocr_version 자체를 통째로 무시해버려 엉뚱한(한글 안
+#      되는) 모델을 골라버린다. 실측: PP-OCRv6_medium_rec를 골라버리고 그마저
+#      로컬에 캐시가 없어 네트워크 다운로드 시도 중 실패.
+# 3.0.0 + ocr_version="PP-OCRv3" 조합만 실제 한글 인식이 정상 동작함을
+# 확인했다 (ocr/config.py의 OCR_VERSION 주석 참고).
 paddlepaddle==3.0.0
-paddleocr>=3.7.0
+paddleocr==3.0.0
+# paddlex(paddleocr 의존성)가 물고 오는 chardet>=6은 mypyc 컴파일된 서명 없는
+# .pyd 확장을 포함해서 Windows Smart App Control(평가 모드)이 임포트 자체를
+# 차단한다 (ImportError: DLL load failed ... 애플리케이션 제어 정책).
+# 순수 파이썬 휠만 있는 5.2.0으로 고정해 피한다.
+chardet==5.2.0
 opencv-contrib-python>=4.10.0  # paddleocr 3.x 의존성
+# ocr/spacing.py가 OCR로 읽은 한글 텍스트의 띄어쓰기를 복원한다
+kiwipiepy
 
 # ── extract/ ──────────────────────────────────────────────────────────────────
 requests>=2.34.0  # Ollama API 호출
