@@ -8,8 +8,8 @@ SPEC_LABEL_KEYWORDS = {
     "model": ["모델명", "모델번호", "모델", "형번", "품번", "제품번호", "제품코드",
               "model name", "model no", "model number", "model", "type", "type no",
               "part no", "part number", "p/n", "sku", "ordering code", "mlfb", "품목번호"],
-    "size": ["사이즈", "규격", "치수", "크기", "size", "dimension", "dimensions"],
-    "spec": ["사양", "스펙", "제품사양", "specification", "spec"],
+    "규격": ["사이즈", "규격", "치수", "크기", "사양", "스펙", "제품사양",
+             "size", "dimension", "dimensions", "specification", "spec"],
 }
 
 # 라벨 없이도 모델번호로 볼 수 있는 값 패턴
@@ -25,11 +25,11 @@ EXTRACTION_ENGINE = "qwen"
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 # ollama list로 실제 받아둔 모델 태그를 확인하고 이름이 다르면 맞춰서 바꿀 것.
-OLLAMA_MODEL = "qwen2.5:3b"
-OLLAMA_TIMEOUT_SECONDS = 120
+OLLAMA_MODEL = "qwen3:4b"
+OLLAMA_TIMEOUT_SECONDS = 600
 # 호출 사이에 모델을 메모리에 얼마나 유지할지.
 OLLAMA_KEEP_ALIVE = "5m"
 # 응답 최대 토큰 수.
-OLLAMA_NUM_PREDICT = 1024
+OLLAMA_NUM_PREDICT = 800
 # 프롬프트에 넣는 각 텍스트 소스의 최대 길이.
 OLLAMA_MAX_SOURCE_CHARS = 4000

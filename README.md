@@ -41,7 +41,7 @@ crawl/urls.txt 에 URL 입력
         ▼   ocr/output/capture_YYYYMMDD_HHMMSS/
         │
         ▼
-[ 3단계 ] extract/extract_info.py  — 상품 정보 추출
+[ 3단계 ] extract/extractor.py  — 상품 정보 추출
            · Qwen(Ollama) LLM으로 상품명·모델번호·사이즈·사양 추출
            · Ollama 미설치 또는 실패 시 규칙 기반(정규식/키워드)으로 자동 폴백
            · products_summary.json / products_summary.txt 생성
@@ -88,8 +88,7 @@ URL-bot/
 │               └── ocr_combined.txt     # 상품별 OCR 텍스트 통합본
 │
 ├── extract/
-│   ├── extract_info.py          # 상품 정보 추출 오케스트레이터 (3단계)
-│   ├── qwen_extract.py          # Ollama/Qwen LLM 추출 모듈
+│   ├── extractor.py             # 상품 정보 추출 — 파이프라인·규칙 기반·LLM 통합 (3단계)
 │   ├── config.py                # 추출 설정 (키워드, LLM 파라미터 등)
 │   └── output/
 │       └── capture_YYYYMMDD_HHMMSS/
@@ -152,7 +151,7 @@ python crawl/crawler.py
 python ocr/paddle_ocr.py
 
 # 정보 추출만
-python extract/extract_info.py
+python extract/extractor.py
 ```
 
 ---
@@ -175,7 +174,21 @@ Playwright로 실제 Chrome 브라우저를 제어해 상품 페이지를 수집
 
 ### 2단계: OCR (ocr/paddle_ocr.py)
 
-PaddleOCR(PP-OCRv5)로 이미지에서 텍스트를 추출합니다.
+PaddleOCR 3.x (PaddleX 백엔드, PaddlePaddle 3.0.0)로 이미지에서 텍스트를 추출합니다.
+
+**사용 모델**
+
+| 역할 | 모델 | 설명 |
+|---|---|---|
+| 텍스트 검출 (Detection) | `PP-OCRv5_mobile_det` | 이미지에서 텍스트 영역 박스를 찾는 모델. mobile = 경량·빠름 |
+| 텍스트 인식 (Recognition) | `korean_PP-OCRv5_mobile_rec` | 검출된 영역에서 실제 글자를 읽는 모델. 한국어 특화 학습 버전 |
+
+> **왜 이 조합인가?**  
+> PaddleOCR 3.x는 기본적으로 인식 모델로 `PP-OCRv6_medium_rec`를 선택합니다.  
+> 그러나 이 모델은 PaddlePaddle 3.0.0의 PIR(Program IR)에서 `strides` 속성 타입 불일치 버그가 있어 실행 시 오류가 납니다.  
+> `korean_PP-OCRv5_mobile_rec`는 동일 PIR 환경에서 정상 동작하는 최신 한국어 인식 모델입니다.
+
+**처리 방식**
 
 - **대상**: `assets/*.png`(이미지·Canvas) + `product.png`(상품 본문 스크린샷)
 - **타일 분할**: 긴 이미지를 일정 높이로 잘라 처리하고 y좌표 오프셋으로 보정합니다.
@@ -183,7 +196,7 @@ PaddleOCR(PP-OCRv5)로 이미지에서 텍스트를 추출합니다.
 - **좌표 기반 행·열 재조합**: 단어별 바운딩 박스 y좌표로 행을 그룹핑하고, x좌표 간격이 넓으면 탭으로 구분해 표 구조를 보존합니다.
 - **캐시**: 이미 처리한 이미지는 재실행 시 건너뜁니다(`config.py`에서 끌 수 있음).
 
-### 3단계: 정보 추출 (extract/extract_info.py)
+### 3단계: 정보 추출 (extract/extractor.py)
 
 크롤링·OCR 결과를 종합해 상품별 핵심 정보를 추출합니다.
 
@@ -224,15 +237,16 @@ PaddleOCR(PP-OCRv5)로 이미지에서 텍스트를 추출합니다.
 
 ## 8. 성능 측정
 
-> 환경: Windows 11, Chrome (non-headless)  
+> 환경: Windows 11, Chrome (non-headless), Intel i5-1135G7 / RAM 16GB / 내장그래픽(CPU 추론)  
+> Extract 모델: qwen3:4b (Ollama, think:false)
 
 | 사이트 | Crawl | OCR | Extract | 총합 |
 |---|---:|---:|---:|---:|
-| Misumi | 18.6초 | | | |
-| Festo | 11.2초 | | | |
-| Swagelok | 9.6초 | | | |
-| Siemens Industry Mall | 9.5초 | | | |
-| Navimro (1) | 36.9초 | | | |
-| Danawa | 87.6초 | | | |
-| Navimro (2) | 40.9초 | | | |
-| **단계 합계** | **218.7초** | | | |
+| Misumi | 18.6초 | | 78.8초 | |
+| Festo | 11.2초 | | 90.4초 | |
+| Swagelok | 9.6초 | | 303.7초 | |
+| Siemens Industry Mall | 9.5초 | | 52.6초 | |
+| Navimro (1) | 36.9초 | | 101.3초 | |
+| Danawa | 87.6초 | | 322.0초 | |
+| Navimro (2) | 40.9초 | | 280.8초 | |
+| **단계 합계** | **218.7초** | | **1229.6초** | |

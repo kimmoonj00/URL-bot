@@ -463,14 +463,14 @@ def run_capture_bot(run_ocr_and_extract=True):
         # (paddleocr 미설치 환경에서는 이 단계에서 ImportError가 나므로 그 경우
         #  run_ocr_and_extract=False로 main.py만 먼저 돌리고 ocr/paddle_ocr.py를 따로 실행할 것)
         from ocr import paddle_ocr
-        from extract import extract_info
+        from extract import extractor
 
         run_name = os.path.basename(output_dir)  # "capture_YYYYMMDD_HHMMSS"
         ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name)
         extract_dir = os.path.join(_ROOT, "extract", "output", run_name)
 
         paddle_ocr.ocr_capture_dir(output_dir, ocr_dir)
-        extract_info.build_summary(output_dir, ocr_dir=ocr_dir, extract_dir=extract_dir)
+        extractor.build_summary(output_dir, ocr_dir=ocr_dir, extract_dir=extract_dir)
 
     total_elapsed = time.perf_counter() - pipeline_started
     print(f"⏱️  전체 파이프라인 소요 시간: {total_elapsed:.1f}초")

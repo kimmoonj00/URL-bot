@@ -1,0 +1,136 @@
+DP500-033260
+DPU - Device Prograimmer I Test Unit for Fire Finder XLS and msL Devicas Model DPU	Buy product
+Is a compact portable and menu-driven accessory used in mamy Siemens fire sy stems for	Quantity	1 매 iete
+Electronically programming and testing detectors easily and reliably Model DPd
+Eliminates the need for cumbersome unreliable mechanical programming methods Isuch	It2 Add to cart
+as dials or rotary awitchesl thus reducing installatlon and service costs Model Dpu
+Elecironically programs and tesis the detector prior to installation wia the interface's
+microromputer-chip non-wolatile memory
+Frequently bought together!
+List Price	? Show prices
+Customer Price	I Show pricas
+Ayaill abillty	[
+Product
+Product Number Mwarket Facing Number]	[PU5DD-032H
+Product Description	DPV -- Dewice Programmer I Test Unit for Fire Finder xL5	5 DPu-c11500-033990
+and msL Deulces IMlodel DPu is a compact portable and
+menu-driven accessory used in mamy Siemens fire sw stem?	DPU-eI - Carrying Case for DPu Model DPu-c1 s
+For electronically programminy and tastiny deteciors easily	a protective carrying case for the Siemen?
+and reliably Model Dpu eliminates the need for	Programmer I Tester Dewice Mlodel DPu
+Cumbersome unreliable mechanical prouramminy method?
+Euch as dials orrotar Swllchadl Thus reducin installation
+And service costs Model DPu electronically programs and
+Tests the detector prior to installation wia the interface's
+microromputer-chip non-wolatile memory
+Product family	I Device Programming Vnits and Accessories
+Product Lifecycle PLm	Pw30o:Active Product
+Price data	E 대 H-d500-0}304]
+Price Group	SClM-d - 5wvitch Control Module i0 5witches!
+List Price	? Show prices	Designed for use in the Siemens Modular for
+FireFinder fire alarm control panel Model 5ClM-d is
+Customer Price	S Show prices	an option module that prouides manual control of
+The Emerqencw Woice Euacuation Eustelm or manua!
+Metal Factor	None	Tire sy stem control Each Model 5Cll-g module
+Provides eight [Br momentany push bullon switche?
+Deliveny infommation	and 1e LEDs to indicate their status Each switch is
+Export Control Regulation?	AL:NECCN :EARJ!	Issgned two2LEDd andalab 리 l to indicate the
+Programmed usage with a label One of the LEDs
+Days to 5tock	10키D키 y	assigned to each switch is a dualcolor LED used to
+Net Weight fib?	4321	Indicate what type of signal is active and maly also
+be lighted steady or flashing to further indicate
+Packaying Dimension	1895 %2575x 670	Eystem status For example zones active to the
+Package size unit of measure	Evaruation audlio channel will have the LED lighited
+RE and steady; zones active to the Alert audlio
+Ouantity Wnit	1 Piece	Channel will have the LED lighted RED and flashing
+Packaging Quantity	1	Zones selected for paging will have the LED lighted
+GrEEn and flashing until the microphone key is
+Additional Produet Information	Pressed; when the Zone transier comftirmalion
+message is received by the panel's command
+EA	Not awailable	Console the LED will chanqe to steady GREEN!
+UPe	Not awailable	Indicating that it is clear to page telephone zones
+With a call-in in progress will have their LE flashing
+Commodity Code	{5310417]	GrEEn until selected at the command console at
+L나 KZ EDEI CataloID	Et catalo!	Which time the LED will convert to steady GREEN
+Etc This allows the operator easy clear arcess to
+Product Group	Puz	The overall sy stem condition at all times The serond
+Group Code	Hul	LE S amkar andS used td indicatea fault
+Condition Each Mlodel SCill-d and each suuitch !
+Country of origin	United States of America	fully programmable and may be used to contro!
+Epeaker circuits and a wide range of gemeral aystem
+RoH5 Compliance	not awailable	funclions such as Aill call All Ewae Warden's Page
+WEEE I2D 12119EU Take-Eack Obligation	No	Speaker etc Hnw numher of circuits may be
+Grouped and controlled by a single slulleh Sinilch
+REACH Art J5 Duty to inform according to the current list of E Lead c5-No T42-g2-1t O 1 oh fu I w	Usage and zone groupings are assigned usin! the
+Candidatas	Programming sofflware ZEU5 Every Model SCwl-d
+SciP number	Not awailable	Is mounted on a hinged panel as a part of the
+Command console enclosure Any combination of a
+Classirications	Model 5ClM-- Lcw-d or FclM-e modules may be
+MWot awailalble	mounted on the Model iD-MP A six fe conductor
+Cable s supplied for interconnection of the modula
+Models selll-e Lell-e and Felw-s can be remotely
+mounted up to 1ooo feet tsodA mI trom the malin
+Enclosure Iwlodlels RElwEOx2 and RElMEOK4 lobby
+nclosure are reuired for remote mounting td a
+ScM-g LCil-a and Feil-e The wlodel csE
+Sounder is optionally available for switch audible
+feedback for remote mounting applications
+51세 0-더1500-035210
+Alle-e - Netwwork Interface Card Desiqned for use in
+A Siemens Modular lor FireFinder] system the
+Network Interface Card or Ml e-C providas H-nET or
+A-wET network communications belween
+enclosures In addition to the H-NET or XwE
+Communication the Mle-C provides CAr network
+Communication within an enclosure or exlernal to
+The enelosure The H-rET or A-NET can be wired
+Style 4 or Style T The CAr network can be wired
+Style 4 only A single Mio-C providas either H-nEt
+Or X-nET The CAr interface is available regardless
+Of the HrET or XnET uSage When the NIe-C is
+Used for H-NET communications it provides
+Communication betwe en enclosures on a single
+System It is set for H-nEt usage and an H-net
+address The maximum H-NET Ne-Cs on a single
+Aystem Isingle node! is b4 The Mllcc supervises
+the H-MET network to insure proper operation The
+Wle-C also isolates a short circuit fault to each
+Individual segment of the HrET network The Mlle-C
+Provides an electrical repeater for each H-nET pair
+l
+hh
+-
+Hrns-d5uD-ded4d
+Him5-D - Addressable Manual Fire Alarm Box
+Double Action The Iwlodel Hn5-D intelligent manual
+Tire alarm box provides the most adyanced method
+Of address programming and supervision combined
+With sophisticated control-panel comumunication
+Furiher each Model HwsD box achieves the state
+Of an intelligent-initiating device by incorporatin
+Custom microcomputer-chip techinology with
+Sophisticated bi-directional communication
+Capabilities to the Siemens FAcr
+- 21C-441500-033050
+ZlC-4A -- Zone Indicating Card Designed for use on
+a Siemens Modular lor FireFinder XLe control
+Panel the Zone Indicd ting Card Zio-dA provides
+four I'4 fully supervised provrammable output
+CircuitsModel Zle4A supplles lour [4] Class B
+style  or class A style Z! type ouput cirruits
+Power limited to d O amps maxlmum per circuit
+Each circuit can be independently programmed for
+Use with listed audible or wisual no timication
+appliancee listed emergend! audio apeakers
+municip al-tie boxes; le ased linas or as releasing
+Circuits Mlodel Z1G-dA plugs into one I'll slot in a
+Model ce-5 or Ce-2 card cage and has on-board
+Tight-emitting diodles LEa! for aystem status and
+Troubleshooting Indication of power
+Communicattion; internal operation and ground fault
+Conditiong are provided as well as indication of
+Circuit activation or Trouble conditions Each circuit
+Or output may be controlled automatically with
+System logic programmed with the ZEu
+Programming tool or manually using a Siemmen?
+Modular lor FireFinder  L5 keypad found on the
+front of the panel's central procassor unit
