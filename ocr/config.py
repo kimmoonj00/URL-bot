@@ -5,11 +5,6 @@ IMAGE_DIR = os.path.join(os.path.dirname(_DIR), "crawl", "output")  # crawl 결�
 
 OCR_TILE_HEIGHT = 1200
 OCR_TILE_OVERLAP = 100
-# 이 높이(px)를 넘는 이미지는 타일링을 거쳐도 PaddleOCR 추론 중 메모리 부족으로
-# 세그폴트가 나는 걸 실측했다 (이 환경 RAM 7.7GB 기준, danawa의 860x7998px
-# 스택형 상세이미지에서 재현 — 프로세스 자체가 죽어 try/except로도 못 잡고
-# 배치 전체가 중단됨). 이 높이를 넘는 이미지는 OCR을 건너뛰고 경고만 남긴다.
-OCR_MAX_IMAGE_HEIGHT = 6000
 OCR_CONFIDENCE_THRESHOLD = 0.30
 OCR_PADDLE_FALLBACK_THRESHOLD = 0.55
 OCR_CACHE_ENABLED = True
@@ -26,23 +21,25 @@ OCR_COL_GAP_RATIO = 2.5
 
 # PaddleOCR 엔진 초기화 파라미터
 OCR_LANG = "korean"
-# PP-OCRv3로 고정한다 (중요, 아래 두 문제 때문에 임의로 올리면 안 됨).
-#   1. paddleocr 3.7.0 기준 기본 모델 세대(PP-OCRv5/v6)는 한국어 인식 모델이
-#      없다. lang="korean"을 줘도 무시되고 엉뚱한(한글 안 되는) 모델로 인식해
-#      한글이 다 깨지거나 아예 인식이 안 된다.
-#   2. text_detection_model_name처럼 모델명을 직접 지정하면 paddleocr가
-#      "lang과 ocr_version은 무시한다"는 경고를 내고 실제로 lang="korean"을
-#      무시해버린다 (실측: PP-OCRv6_medium_rec 같은 비한국어 모델을 골라서
-#      로컬 캐시에 없으면 네트워크 다운로드를 시도하다 실패함).
-# 그래서 모델명을 직접 지정하지 않고, ocr_version="PP-OCRv3" + lang="korean"
-# 조합만으로 paddleocr가 자동으로 "korean_PP-OCRv3_mobile_rec"를 고르게 한다.
-# 실제 이미지로 검증: "솔레노이드코일", "장바구니에담기" 등 정상 인식 확인됨.
-OCR_VERSION = "PP-OCRv3"
 # 텍스트 방향 분류 모델도 문서방향보정과 같은 계열(PP-LCNet 분류 모델)이라
 # 같은 oneDNN 버그를 낼 수 있어 기본은 꺼둔다.
 OCR_USE_TEXTLINE_ORIENTATION = False
 OCR_TEXT_DET_LIMIT_SIDE_LEN = 4000
 OCR_TEXT_DET_LIMIT_TYPE = "max"
+# 인식 단계에서 텍스트 조각을 하나씩 순서대로 돌리지 않고 이 개수만큼
+# 묶어서 한 번에 추론한다 (mooonjooo 브랜치 ocr/engine.py에서 확인).
+# 안정성 구조(상품 폴더별 프로세스 격리)는 그대로 두고 순수하게 추론
+# 속도만 올리는 옵션이라 크래시 방지 로직과 무관하다.
+OCR_TEXT_RECOGNITION_BATCH_SIZE = 16
 # 스캔 문서용 전처리. 웹페이지 스크린샷은 이미 똑바르므로 꺼둔다.
 OCR_USE_DOC_ORIENTATION_CLASSIFY = False
 OCR_USE_DOC_UNWARPING = False
+# oneDNN 가속을 아예 끈다. None으로 두면 파라미터 자체를 안 넘긴다.
+OCR_ENABLE_MKLDNN = False
+# 서버형 모델에서 oneDNN 오류가 재현됐을 때의 우회책. 빈 문자열/None이면 기본값 사용.
+# 모델명을 직접 지정하면 paddleocr가 lang/ocr_version을 무시하고, 로컬에 이미
+# 캐시된 모델이 있어도 이 네트워크 환경(SSL 인증서 문제)에서 재확인/다운로드를
+# 시도하다 응답 없이 멈추는 걸 실측했다. 그래서 비워서 기본값(lang 기반 자동
+# 선택)을 쓰게 한다.
+OCR_TEXT_DETECTION_MODEL_NAME = ""
+OCR_USE_PADDLE_FALLBACK = False
