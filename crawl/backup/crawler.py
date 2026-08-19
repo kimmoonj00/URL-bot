@@ -20,47 +20,16 @@ if _SELF not in sys.path:
     sys.path.insert(0, _SELF)
 
 from config import (
-    BLOCK_RESOURCE_TYPES,
-    BLOCK_URL_KEYWORDS,
-    BLOCKED_CHECK_TIMEOUT_MS,
     BROWSER_PROFILE_DIR,
-    CHALLENGE_POLL_INTERVAL_MS,
-    CONSENT_CLICK_TIMEOUT_MS,
-    CONSENT_MAX_BUTTONS,
-    CONSENT_SETTLE_MS,
-    CONSENT_VISIBLE_TIMEOUT_MS,
     DEFAULT_VIEWPORT,
-    DETAIL_EXPAND_CLICK_TIMEOUT_MS,
-    DETAIL_EXPAND_MAX_BUTTONS,
-    DETAIL_EXPAND_SETTLE_MS,
-    DETAIL_EXPAND_VISIBLE_TIMEOUT_MS,
-    ELEMENT_SCREENSHOT_TIMEOUT_MS,
-    ENABLE_IMAGE_PREPROCESS,
     EXCLUDE_DOMAINS,
     HEADLESS,
-    IMAGE_AUTOCONTRAST_CUTOFF,
-    IMAGE_CONTRAST_FACTOR,
-    IMAGE_SHARPNESS_FACTOR,
-    IMAGE_UPSCALE_MAX_SCALE,
-    IMAGE_UPSCALE_MIN_WIDTH,
-    LOAD_STATE_TIMEOUT_MS,
     MANUAL_CHALLENGE_WAIT_SECONDS,
     MAX_OCR_ASSETS_PER_PAGE,
     MIN_OCR_ASSET_HEIGHT,
     MIN_OCR_ASSET_WIDTH,
-    NAV_TIMEOUT_MS,
-    NETWORK_SETTLE_TIMEOUT_MS,
-    PRODUCT_REGION_MIN_HEIGHT,
-    PRODUCT_REGION_MIN_WIDTH,
     PRODUCT_REGION_SELECTORS,
-    PRODUCT_REGION_VISIBLE_TIMEOUT_MS,
-    SCROLL_MAX_ATTEMPTS,
-    SCROLL_STABLE_ROUNDS,
-    SCROLL_WAIT_MS,
-    TABLE_RETRY_ATTEMPTS,
-    TABLE_WAIT_TIMEOUT_MS,
     TARGET_URLS,
-    TEXT_EXTRACT_TIMEOUT_MS,
     WARMUP_URLS,
 )
 
@@ -110,85 +79,15 @@ MORE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# 요소 단위로 뷰포트 내 표시 여부 + 크기를 한 번에 스캔하기 위한 JS.
-# (기존에는 요소마다 is_visible()/bounding_box()/evaluate()를 각각 호출해
-#  요소 수만큼 왕복(round-trip)이 발생했다. 이제 프레임당 한 번의 evaluate로 끝낸다.)
-_SCAN_MEDIA_JS = """
-([minWidth, minHeight]) => Array.from(document.querySelectorAll('img, canvas')).map((el, i) => {
-    const rect = el.getBoundingClientRect();
-    const style = window.getComputedStyle(el);
-    const visible = style.visibility !== 'hidden'
-        && style.display !== 'none'
-        && parseFloat(style.opacity || '1') > 0
-        && rect.width >= minWidth
-        && rect.height >= minHeight;
-    return {
-        index: i,
-        tag: el.tagName.toLowerCase(),
-        src: el.tagName.toLowerCase() === 'img' ? (el.currentSrc || el.src || '') : '',
-        alt: el.getAttribute('alt') || '',
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        visible,
-    };
-}).filter(item => item.visible)
-"""
-
 
 def safe_name(url):
     host = urlparse(url).hostname or "unknown"
     return host.replace(".", "_")
 
 
-def setup_resource_blocking(context):
-    """텍스트는 DOM에서 직접 읽고 이미지는 OCR용으로만 필요하므로,
-    렌더링에 불필요한 리소스(동영상, 폰트, 광고/추적 스크립트)는 아예 받지 않는다.
-    -> 페이지당 접속/로딩 시간 단축 + 네트워크 리소스 절감."""
-    if not BLOCK_RESOURCE_TYPES and not BLOCK_URL_KEYWORDS:
-        return
-
-    def handle_route(route):
-        request = route.request
-        if request.resource_type in BLOCK_RESOURCE_TYPES:
-            return route.abort()
-        url = request.url.lower()
-        if any(keyword in url for keyword in BLOCK_URL_KEYWORDS):
-            return route.abort()
-        return route.continue_()
-
-    context.route("**/*", handle_route)
-
-
-def preprocess_image_for_ocr(path):
-    """OCR 정확도를 높이기 위한 가벼운 이미지 전처리(색 보정):
-    - 너무 작은 이미지는 업스케일 (작은 글자 대응)
-    - 명암 자동 보정(autocontrast)
-    - 대비/선명도 보정
-    Pillow만 사용하며, 실패해도 원본 스크린샷은 그대로 남는다."""
-    if not ENABLE_IMAGE_PREPROCESS:
-        return
-    try:
-        from PIL import Image, ImageEnhance, ImageOps
-    except ImportError:
-        return
-    try:
-        with Image.open(path) as img:
-            img = img.convert("RGB")
-            if img.width and img.width < IMAGE_UPSCALE_MIN_WIDTH:
-                scale = min(IMAGE_UPSCALE_MIN_WIDTH / img.width, IMAGE_UPSCALE_MAX_SCALE)
-                new_size = (round(img.width * scale), round(img.height * scale))
-                img = img.resize(new_size, Image.LANCZOS)
-            img = ImageOps.autocontrast(img, cutoff=IMAGE_AUTOCONTRAST_CUTOFF)
-            img = ImageEnhance.Contrast(img).enhance(IMAGE_CONTRAST_FACTOR)
-            img = ImageEnhance.Sharpness(img).enhance(IMAGE_SHARPNESS_FACTOR)
-            img.save(path)
-    except Exception as error:
-        print(f"   이미지 전처리 실패({os.path.basename(path)}): {error}")
-
-
 def is_blocked(page):
     try:
-        sample = f"{page.title()} {page.locator('body').inner_text(timeout=BLOCKED_CHECK_TIMEOUT_MS)[:1500]}"
+        sample = f"{page.title()} {page.locator('body').inner_text(timeout=3000)[:1500]}"
         return bool(BLOCKED_PATTERN.search(sample))
     except Exception:
         return False
@@ -201,19 +100,10 @@ def warm_up(page, url):
         return
     print(f"   워밍업 방문: {warmup}")
     try:
-        page.goto(warmup, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-        wait_for_network_settle(page)
+        page.goto(warmup, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2000)
     except Exception as error:
         print(f"   워밍업 실패(상세 페이지는 계속 진행): {error}")
-
-
-def wait_for_network_settle(page):
-    """무조건 N초 자는 대신, 네트워크가 먼저 조용해지면 그 즉시 다음 단계로 넘어간다.
-    느린 사이트는 NETWORK_SETTLE_TIMEOUT_MS까지만 기다리고 포기한다(계속 진행)."""
-    try:
-        page.wait_for_load_state("networkidle", timeout=NETWORK_SETTLE_TIMEOUT_MS)
-    except Exception:
-        pass
 
 
 def wait_for_manual_challenge(page):
@@ -224,7 +114,7 @@ def wait_for_manual_challenge(page):
     print("   보안 확인 화면입니다. 열린 Chrome에서 정상 확인 절차를 완료하세요.")
     deadline = time.time() + MANUAL_CHALLENGE_WAIT_SECONDS
     while time.time() < deadline:
-        page.wait_for_timeout(CHALLENGE_POLL_INTERVAL_MS)
+        page.wait_for_timeout(2000)
         if not is_blocked(page):
             print("   보안 확인 완료. 저장된 브라우저 세션을 다음 실행에도 재사용합니다.")
             return True
@@ -238,11 +128,11 @@ def dismiss_consent(page):
     )
     try:
         candidates = page.get_by_role("button", name=pattern)
-        for index in range(min(candidates.count(), CONSENT_MAX_BUTTONS)):
+        for index in range(min(candidates.count(), 5)):
             button = candidates.nth(index)
-            if button.is_visible(timeout=CONSENT_VISIBLE_TIMEOUT_MS):
-                button.click(timeout=CONSENT_CLICK_TIMEOUT_MS)
-                page.wait_for_timeout(CONSENT_SETTLE_MS)
+            if button.is_visible(timeout=500):
+                button.click(timeout=2000)
+                page.wait_for_timeout(500)
                 return True
     except Exception:
         pass
@@ -253,13 +143,13 @@ def expand_details(page):
     expanded = 0
     try:
         candidates = page.locator("button, [role=button], summary").filter(has_text=MORE_PATTERN)
-        for index in range(min(candidates.count(), DETAIL_EXPAND_MAX_BUTTONS)):
+        for index in range(min(candidates.count(), 8)):
             target = candidates.nth(index)
             try:
-                if target.is_visible(timeout=DETAIL_EXPAND_VISIBLE_TIMEOUT_MS):
-                    target.click(timeout=DETAIL_EXPAND_CLICK_TIMEOUT_MS)
+                if target.is_visible(timeout=300):
+                    target.click(timeout=1500)
                     expanded += 1
-                    page.wait_for_timeout(DETAIL_EXPAND_SETTLE_MS)
+                    page.wait_for_timeout(500)
             except Exception:
                 continue
     except Exception:
@@ -270,50 +160,20 @@ def expand_details(page):
 def wake_lazy_content(page):
     previous_height = 0
     stable = 0
-    for _ in range(SCROLL_MAX_ATTEMPTS):
+    for _ in range(18):
         try:
             height = page.evaluate("document.documentElement.scrollHeight")
             page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
         except Exception:
             break
-        page.wait_for_timeout(SCROLL_WAIT_MS)
+        page.wait_for_timeout(800)
         if height == previous_height:
             stable += 1
-            if stable >= SCROLL_STABLE_ROUNDS:
+            if stable >= 3:
                 break
         else:
             stable = 0
             previous_height = height
-    try:
-        page.evaluate("window.scrollTo(0, 0)")
-    except Exception:
-        pass
-
-
-def ensure_tables_ready(page):
-    """스크롤이 멈춘 뒤에도 표가 하나도 안 잡히면, MISUMI 가격표처럼 스크롤 정지 후에야
-    XHR로 늦게 채워지는 표일 수 있다. 표가 이미 있는(대다수) 페이지는 첫 count() 체크에서
-    바로 반환하므로 속도에 영향이 없다."""
-    try:
-        if page.locator("table").count() > 0:
-            return
-    except Exception:
-        return
-
-    for _ in range(TABLE_RETRY_ATTEMPTS):
-        try:
-            page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
-        except Exception:
-            break
-        wait_for_network_settle(page)
-        try:
-            page.locator("table").first.wait_for(
-                state="attached", timeout=TABLE_WAIT_TIMEOUT_MS
-            )
-            break  # 표가 나타났다
-        except Exception:
-            continue  # 아직 없음 -> 다음 재시도
-
     try:
         page.evaluate("window.scrollTo(0, 0)")
     except Exception:
@@ -404,7 +264,7 @@ def save_page_sources(page):
     tables = []
     for frame_index, frame in enumerate(page.frames):
         try:
-            frame_text = frame.locator("body").inner_text(timeout=TEXT_EXTRACT_TIMEOUT_MS).strip()
+            frame_text = frame.locator("body").inner_text(timeout=5000).strip()
             if frame_text:
                 label = "MAIN" if frame == page.main_frame else f"IFRAME {frame_index}"
                 text_sections.append(f"[{label}]\n{frame_text}")
@@ -422,63 +282,59 @@ def save_page_sources(page):
 
 
 def capture_ocr_assets(page, prefix):
-    """DOM으로 읽을 수 없는 이미지/Canvas만 개별 저장한다.
-    batch evaluate로 스캔 비용을 줄이고, 저장 후 색 보정을 적용한다."""
+    """DOM으로 읽을 수 없는 이미지/Canvas만 개별 저장한다."""
     asset_dir = os.path.join(prefix, "assets")
     os.makedirs(asset_dir, exist_ok=True)
     manifest = []
     seen_sources = set()
 
     for frame_index, frame in enumerate(page.frames):
-        if len(manifest) >= MAX_OCR_ASSETS_PER_PAGE:
-            break
-        try:
-            candidates = frame.evaluate(_SCAN_MEDIA_JS, [MIN_OCR_ASSET_WIDTH, MIN_OCR_ASSET_HEIGHT])
-        except Exception:
-            continue
-        if not candidates:
-            continue
         try:
             elements = frame.locator("img, canvas")
+            count = elements.count()
         except Exception:
             continue
-
-        for item in candidates:
+        for element_index in range(count):
             if len(manifest) >= MAX_OCR_ASSETS_PER_PAGE:
                 break
-            # 쿼리 파라미터(CDN 리사이즈 등)가 달라도 같은 이미지로 처리한다.
-            source = item["src"]
-            if source:
-                _p = urlparse(source)
-                key = _p._replace(query="", fragment="").geturl()
-            else:
-                key = f"canvas:{frame_index}:{item['index']}:{item['width']}x{item['height']}"
-            if key in seen_sources:
-                continue
-            seen_sources.add(key)
-
-            filename = f"asset_{len(manifest) + 1:03d}_{item['tag']}.png"
-            path = os.path.join(asset_dir, filename)
+            element = elements.nth(element_index)
             try:
-                element = elements.nth(item["index"])
-                element.screenshot(
-                    path=path, animations="disabled", timeout=ELEMENT_SCREENSHOT_TIMEOUT_MS
+                if not element.is_visible(timeout=300):
+                    continue
+                box = element.bounding_box()
+                if not box:
+                    continue
+                if box["width"] < MIN_OCR_ASSET_WIDTH or box["height"] < MIN_OCR_ASSET_HEIGHT:
+                    continue
+                tag = element.evaluate("node => node.tagName.toLowerCase()")
+                source = element.evaluate(
+                    "node => node.tagName.toLowerCase() === 'img' ? (node.currentSrc || node.src || '') : ''"
+                )
+                # 쿼리 파라미터(CDN 리사이즈 등)가 달라도 같은 이미지로 처리한다.
+                _p = urlparse(source)
+                normalized = _p._replace(query="", fragment="").geturl() if source else ""
+                key = normalized or f"canvas:{frame_index}:{element_index}:{round(box['width'])}x{round(box['height'])}"
+                if key in seen_sources:
+                    continue
+                seen_sources.add(key)
+                filename = f"asset_{len(manifest) + 1:03d}_{tag}.png"
+                path = os.path.join(asset_dir, filename)
+                element.screenshot(path=path, animations="disabled")
+                manifest.append(
+                    {
+                        "file": path,
+                        "tag": tag,
+                        "src": source,
+                        "alt": element.get_attribute("alt") or "",
+                        "frame_index": frame_index,
+                        "width": round(box["width"]),
+                        "height": round(box["height"]),
+                    }
                 )
             except Exception:
                 continue
-
-            preprocess_image_for_ocr(path)
-            manifest.append(
-                {
-                    "file": path,
-                    "tag": item["tag"],
-                    "src": item["src"],
-                    "alt": item["alt"],
-                    "frame_index": frame_index,
-                    "width": item["width"],
-                    "height": item["height"],
-                }
-            )
+        if len(manifest) >= MAX_OCR_ASSETS_PER_PAGE:
+            break
 
     manifest_path = os.path.join(prefix, "assets.json")
     with open(manifest_path, "w", encoding="utf-8") as output:
@@ -494,12 +350,12 @@ def get_product_region_html(page, url):
     for selector in selectors:
         try:
             region = page.locator(selector).first
-            if not region.is_visible(timeout=PRODUCT_REGION_VISIBLE_TIMEOUT_MS):
+            if not region.is_visible(timeout=800):
                 continue
             box = region.bounding_box()
-            if not box or box["width"] < PRODUCT_REGION_MIN_WIDTH or box["height"] < PRODUCT_REGION_MIN_HEIGHT:
+            if not box or box["width"] < 300 or box["height"] < 150:
                 continue
-            return selector, region.inner_html(timeout=TEXT_EXTRACT_TIMEOUT_MS)
+            return selector, region.inner_html(timeout=5000)
         except Exception:
             continue
     return None, ""
@@ -543,12 +399,12 @@ def capture_one(page, url, index, total, output_dir):
     started = time.perf_counter()
 
     warm_up(page, url)
-    page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+    page.goto(url, wait_until="domcontentloaded", timeout=60000)
     try:
-        page.wait_for_load_state("load", timeout=LOAD_STATE_TIMEOUT_MS)
+        page.wait_for_load_state("load", timeout=20000)
     except Exception:
         pass
-    wait_for_network_settle(page)
+    page.wait_for_timeout(2000)
 
     if is_blocked(page) and not wait_for_manual_challenge(page):
         elapsed = time.perf_counter() - started
@@ -571,7 +427,6 @@ def capture_one(page, url, index, total, output_dir):
         print(f"   상세정보 버튼 {expanded}개를 펼쳤습니다.")
     wake_lazy_content(page)
     expand_details(page)
-    ensure_tables_ready(page)
 
     table_count, dom_text, tables = save_page_sources(page)
     ocr_assets = capture_ocr_assets(page, prefix)
@@ -634,7 +489,6 @@ def run_capture_bot(run_ocr_and_extract=True):
             timezone_id="Asia/Seoul",
             args=["--start-maximized"],
         )
-        setup_resource_blocking(context)
         try:
             for index, url in enumerate(urls, 1):
                 page = context.new_page()
@@ -666,6 +520,8 @@ def run_capture_bot(run_ocr_and_extract=True):
 
     if run_ocr_and_extract:
         # 캡처가 끝나면 이어서 OCR → 상품명/규격 추출까지 한 번에 수행한다.
+        # (paddleocr 미설치 환경에서는 이 단계에서 ImportError가 나므로 그 경우
+        #  run_ocr_and_extract=False로 main.py만 먼저 돌리고 ocr/paddle_ocr.py를 따로 실행할 것)
         from ocr import paddle_ocr
         from extract import extractor
 

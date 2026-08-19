@@ -1,0 +1,20 @@
+[
+  {
+    "file": "C:\\Users\\user\\Desktop\\project\\URL-bot\\crawl\\output\\capture_20260819_135313\\1_kr_misumi-ec_com\\assets\\asset_001_img.png",
+    "tag": "img",
+    "src": "https://kr.misumi-ec.com/linked/material/fs/SBJ1/PHOTO/223012352594.jpg",
+    "alt": "핸드소켓 (1/4\")",
+    "frame_index": 0,
+    "width": 250,
+    "height": 250
+  },
+  {
+    "file": "C:\\Users\\user\\Desktop\\project\\URL-bot\\crawl\\output\\capture_20260819_135313\\1_kr_misumi-ec_com\\assets\\asset_002_img.png",
+    "tag": "img",
+    "src": "https://kr.misumi-ec.com/linked/vitem/fs/SBJ1/223012352594/img/20190820_134933.jpg",
+    "alt": "",
+    "frame_index": 0,
+    "width": 550,
+    "height": 211
+  }
+]

@@ -50,20 +50,23 @@ SYSTEM_PROMPT = (
     "1. 입력된 텍스트(DOM/표/OCR)에 실제로 등장하는 정보만 사용한다. 없는 내용을 지어내지 않는다.\n"
     "2. 결과는 오직 JSON 객체 하나만 출력한다. 설명, 코드블록 표시(```) 등 다른 텍스트는 절대 포함하지 않는다.\n"
     "3. JSON 스키마: "
-    '{"product_name": "string", "model": ["string", ...], "규격": ["string", ...]}\n'
+    '{"product_name": "string", "variants": [{"model": "string", "규격": ["string", ...]}, ...]}\n'
+    "variants는 모델번호 하나당 항목 하나다. 모델번호가 1개이면 variants에 항목이 1개다. "
+    "모델번호를 알 수 없으면 model을 빈 문자열(\"\")로 두고 알 수 있는 규격만 담는다.\n"
     "4. product_name은 사이트 이름이나 카테고리명이 아니라 실제 상품명만 담는다. "
     "느낌표가 들어간 광고 카피, 홍보 문구, 슬로건('~의 혁명', '최저가', '단 하나뿐인' 등)은 "
     "상품명이 아니므로 절대 쓰지 않는다. 카탈로그에 실릴 법한 공식 품명만 담는다.\n"
-    "5. model은 이 페이지가 다루는 상품 자체의 모델번호/형번/품번만 담는다. 페이지에 여러 옵션이 "
-    "표로 나열되어 있어도, 이 URL이 가리키는 특정 옵션의 모델번호만 담고 무관한 변형을 나열하지 않는다. "
+    "5. 각 variant의 model에는 그 변형의 모델번호/형번/품번만 담는다. "
+    "페이지에 여러 옵션이 표로 나열되어 있으면 각 행(옵션)마다 variant 항목을 하나씩 만들고 "
+    "그 행에만 해당하는 규격을 해당 variant의 규격 배열에 담는다. "
     "또한 product_name에 영문·숫자·하이픈·슬래시 조합의 코드(예: EQwear-EV3, MSFG-24/42-50/60-OD)가 "
-    "포함되어 있으면 그 코드를 model에도 반드시 포함한다. "
-    "단, model에 코드를 추가했다고 해서 product_name에서 그 코드를 제거하지 않는다. product_name은 원래 표현을 그대로 유지한다.\n"
-    "6. 규격은 치수·크기·전압·전류·압력·온도·무게·재질·보호등급·호칭·색상·등급 등 "
-    "이 상품의 물리적·기술적 특성과 선택 옵션에 해당하는 정보를 담는다. "
+    "포함되어 있으면 그 코드를 variants[0].model에도 반드시 포함한다. "
+    "단, product_name에서 그 코드를 제거하지 않는다. product_name은 원래 표현을 그대로 유지한다.\n"
+    "6. 각 variant의 규격에는 그 모델번호에만 해당하는 치수·크기·전압·전류·압력·온도·무게·재질·"
+    "보호등급·호칭·색상·등급 등 물리적·기술적 특성을 담는다. "
     "통관코드, 수출통제 코드(ECCN/AL), 라이프사이클 상태, 내부 제품군 코드, 출하 소요일 등 행정적·물류적 정보는 제외한다. "
     "이미 조합 형식(예: 0.8×5.0×100mm)으로 표현된 값이 있으면 그 조합을 이루는 개별 수치(0.8mm, 5.0mm, 100mm)는 따로 추가하지 않는다.\n"
-    "7. model과 규격의 각 항목은 이 상품 자체를 직접 설명하는 단독 값이어야 한다. "
+    "7. 각 variant의 model과 규격 항목은 그 상품을 직접 설명하는 단독 값이어야 한다. "
     "페이지 UI 버튼·메뉴 텍스트, 다른 상품과의 비교 목록, 탐색용 링크 텍스트는 상품 속성이 아니므로 절대 포함하지 않는다.\n"
     "8. 확실하지 않으면 해당 필드를 빈 문자열이나 빈 배열([])로 둔다. 애매하면 지어내지 말고 비워둬라."
 )
@@ -73,17 +76,11 @@ USER_PROMPT_TEMPLATE = """URL: {url}
 [페이지 제목]
 {title}
 
-[상품 영역 DOM 텍스트]
-{product_dom}
-
-[표 데이터]
-{tables}
+[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]
+{context}
 
 [이미지 OCR 텍스트]
 {ocr}
-
-[페이지 전체 DOM 텍스트 (참고용, 앞부분만)]
-{dom}
 
 위 정보를 바탕으로 JSON 하나만 출력해."""
 
@@ -156,17 +153,12 @@ def call_ollama(messages):
     return _extract_json_object(content)
 
 
-def extract_with_qwen(url, title, product_dom_text, tables_text, ocr_text, dom_text):
+def extract_with_qwen(url, title, context_text, ocr_text):
     user_prompt = USER_PROMPT_TEMPLATE.format(
         url=url,
         title=title or "(제목 없음)",
-        product_dom=_truncate(product_dom_text),
-        tables=_truncate(tables_text),
+        context=_truncate(context_text),
         ocr=_truncate(ocr_text),
-        # 전체 페이지 DOM은 메뉴/광고 등 상품과 무관한 텍스트가 섞여 작은 모델을
-        # 혼란시킬 수 있어 참고용으로만 짧게 자른다. 핵심 정보는 대부분
-        # product_dom/tables/ocr에 이미 담겨 있다.
-        dom=_truncate(dom_text, limit=800),
     )
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -186,8 +178,6 @@ def extract_with_qwen(url, title, product_dom_text, tables_text, ocr_text, dom_t
             items = [str(v) for v in value]
         else:
             items = [str(value)]
-        # 중복 제거(순서 유지) + 비정상적으로 긴 값 방어(모델이 원문을 통째로
-        # 베껴 쓰는 경우가 드물게 있어 값 하나가 지나치게 길면 잘라낸다).
         cleaned = []
         seen = set()
         for item in items:
@@ -198,10 +188,27 @@ def extract_with_qwen(url, title, product_dom_text, tables_text, ocr_text, dom_t
             cleaned.append(item[:150])
         return cleaned
 
+    product_name = str(result.get("product_name", "")).strip()[:200]
+
+    # 새 스키마: variants 배열
+    variants_raw = result.get("variants")
+    if isinstance(variants_raw, list) and variants_raw:
+        variants = []
+        for v in variants_raw:
+            if not isinstance(v, dict):
+                continue
+            model = str(v.get("model", "")).strip()[:200]
+            specs = as_str_list(v.get("규격"))
+            variants.append({"model": model, "규격": specs})
+    else:
+        # 구버전 응답(model + 규격 flat) 호환 처리
+        models = as_str_list(result.get("model")) or [""]
+        specs = as_str_list(result.get("규격"))
+        variants = [{"model": m, "규격": specs} for m in models]
+
     return {
-        "product_name": str(result.get("product_name", "")).strip()[:200],
-        "model": as_str_list(result.get("model")),
-        "규격": as_str_list(result.get("규격")),
+        "product_name": product_name,
+        "variants": variants,
     }
 
 
@@ -380,40 +387,40 @@ def build_record_with_rules(url, metadata, host, dom_text, product_dom_text, tab
         if url_model:
             model = [url_model]
 
+    specs = [item["value"] for item in dedupe_keep_order(candidates["규격"])]
+    # 규칙 기반은 모델별 규격 분리가 불가능하므로 모든 모델이 같은 규격을 공유한다.
+    if model:
+        variants = [{"model": m, "규격": specs} for m in model]
+    else:
+        variants = [{"model": "", "규격": specs}]
+
     return {
         "URL": url,
         "상태": "captured",
         "상품명": product_name,
-        "모델번호": model,
-        "규격": [item["value"] for item in dedupe_keep_order(candidates["규격"])],
+        "variants": variants,
     }
 
 
-def build_record_with_qwen(url, metadata, crawl_prefix, dom_text, product_dom_text, ocr_text):
-    tables_text = _read_text(os.path.join(crawl_prefix, "tables.txt"))
+def build_record_with_qwen(url, metadata, context_text, ocr_text):
     started = time.perf_counter()
     result = extract_with_qwen(
         url=url,
         title=metadata.get("title", ""),
-        product_dom_text=product_dom_text,
-        tables_text=tables_text,
+        context_text=context_text,
         ocr_text=ocr_text,
-        dom_text=dom_text,
     )
     elapsed = time.perf_counter() - started
     print(f"   🤖 Qwen 추출: {url} ({elapsed:.1f}초)")
 
-    if not result["product_name"] and not result["model"] and not result["규격"]:
-        # Qwen이 빈 결과를 준 경우(원문에서 못 찾았거나 응답이 비정상) 그대로 두지 않고
-        # 규칙 기반으로 한 번 더 시도한다. 호출부(build_product_record)에서 처리한다.
+    if not result["product_name"] and not result["variants"]:
         raise QwenExtractionError(f"Qwen이 빈 결과를 반환함: {url}")
 
     return {
         "URL": url,
         "상태": "captured",
         "상품명": result["product_name"],
-        "모델번호": result["model"],
-        "규격": result["규격"],
+        "variants": result["variants"],
     }
 
 
@@ -428,29 +435,35 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
             "URL": url,
             "상태": metadata.get("status", "unknown"),
             "상품명": "",
-            "모델번호": [],
-            "규격": [],
+            "variants": [],
         }
 
-    dom_text = _read_text(os.path.join(crawl_prefix, "dom.txt"))
-    product_dom_text = _read_text(os.path.join(crawl_prefix, "product_dom.txt"))
-    tables = _read_json(os.path.join(crawl_prefix, "tables.json"), [])
+    context_text = _read_text(os.path.join(crawl_prefix, "context.md"))
+    # 구버전 출력(context.md 없음) 하위 호환: 이전 파일들로 컨텍스트를 재조합한다.
+    if not context_text:
+        product_dom = _read_text(os.path.join(crawl_prefix, "product_dom.txt"))
+        tables_txt = _read_text(os.path.join(crawl_prefix, "tables.txt"))
+        dom_txt = _read_text(os.path.join(crawl_prefix, "dom.txt"))
+        context_text = "\n\n".join(filter(None, [product_dom, tables_txt, dom_txt[:2000]]))
 
-    # ocr_combined.txt는 ocr_dir(있으면) 또는 crawl_prefix에서 읽는다.
+    # ocr 단계가 완료됐으면 context.md + OCR을 합친 product.md가 있다.
+    # 있으면 그걸 통째로 쓰고, 없으면 crawl context.md만 쓴다.
+    ocr_text = ""
     if ocr_dir:
         rel = os.path.relpath(crawl_prefix, crawl_dir)
-        ocr_text = _read_text(os.path.join(ocr_dir, rel, "ocr_combined.txt"))
-    else:
-        ocr_text = _read_text(os.path.join(crawl_prefix, "ocr_combined.txt"))
+        product_md = _read_text(os.path.join(ocr_dir, rel, "product.md"))
+        if product_md:
+            context_text = product_md  # context + OCR 통합본
 
     if config.EXTRACTION_ENGINE == "qwen":
         try:
-            return build_record_with_qwen(url, metadata, crawl_prefix, dom_text, product_dom_text, ocr_text)
+            return build_record_with_qwen(url, metadata, context_text, ocr_text)
         except Exception as error:
             print(f"   ⚠️  Qwen 추출 실패({error}) → 규칙 기반으로 대체합니다: {url}")
 
+    # rules-based 폴백: context_text를 dom_text로 사용 (product_dom은 context 안에 포함)
     started = time.perf_counter()
-    result = build_record_with_rules(url, metadata, host, dom_text, product_dom_text, tables, ocr_text)
+    result = build_record_with_rules(url, metadata, host, context_text, "", [], ocr_text)
     elapsed = time.perf_counter() - started
     print(f"   📋 규칙 기반 추출: {url} ({elapsed:.2f}초)")
     return result
