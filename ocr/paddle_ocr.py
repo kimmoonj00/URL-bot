@@ -1,6 +1,15 @@
-import glob
 import os
 import sys
+
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    # 한국어 Windows(cp949) 콘솔 인코딩으로는 이모지 등 일부 문자를 print()할 때
+    # UnicodeEncodeError가 난다 (예: OCR 실패 메시지의 ❌). 현재 프로세스의
+    # stdout/stderr 인코딩만 바꿔서 처리한다.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+import glob
+import subprocess
 import time
 
 import numpy as np
@@ -18,6 +27,11 @@ if _ROOT not in sys.path:
 _cfg = _ilu.spec_from_file_location("ocr_config", os.path.join(_SELF, "config.py"))
 config = _ilu.module_from_spec(_cfg)
 _cfg.loader.exec_module(config)
+
+# `python ocr/paddle_ocr.py`로 직접 실행하면 ocr/가 상대 임포트의 부모
+# 패키지로 인식 안 되므로, 위에서 sys.path에 넣어둔 루트 기준 절대 임포트로
+# 가져온다.
+from ocr.spacing import correct_spacing
 
 os.environ.setdefault("FLAGS_use_mkldnn", "0")  # oneDNN Windows 호환성 버그 우회
 # Paddle 3.x 기본 실행기(PIR)가 일부 oneDNN 연산자의 배열 속성 변환을
@@ -46,8 +60,14 @@ def get_engine():
         use_doc_orientation_classify=config.OCR_USE_DOC_ORIENTATION_CLASSIFY,
         use_doc_unwarping=config.OCR_USE_DOC_UNWARPING,
         lang=config.OCR_LANG,
+        # ocr_version을 안 주면 paddleocr가 기본값으로 최신 세대(PP-OCRv5)
+        # 모델을 쓰려 하는데, paddlepaddle==3.0.0은 그 모델 포맷(PIR)을 제대로
+        # 못 읽어 응답 없이 멈추는 걸 실측했다(수 분간 진행 없음). PP-OCRv3는
+        # paddlepaddle==3.0.0과 실제로 호환되는 마지막 세대라 이걸 명시한다.
+        ocr_version="PP-OCRv3",
         text_det_limit_side_len=config.OCR_TEXT_DET_LIMIT_SIDE_LEN,
         text_det_limit_type=config.OCR_TEXT_DET_LIMIT_TYPE,
+        text_recognition_batch_size=config.OCR_TEXT_RECOGNITION_BATCH_SIZE,
     )
     if config.OCR_TEXT_DETECTION_MODEL_NAME:
         kwargs["text_detection_model_name"] = config.OCR_TEXT_DETECTION_MODEL_NAME
@@ -61,7 +81,7 @@ def get_engine():
         except TypeError as error:
             # 설치된 버전이 지원하지 않는 파라미터가 있으면 하나씩 제거하고 재시도
             removed = False
-            for key in ("enable_mkldnn", "text_detection_model_name"):
+            for key in ("enable_mkldnn", "text_detection_model_name", "text_recognition_batch_size"):
                 if key in kwargs and key in str(error):
                     print(f"  (참고) 설치된 paddleocr 버전이 '{key}' 파라미터를 지원하지 않아 제외하고 재시도합니다.")
                     del kwargs[key]
@@ -226,10 +246,20 @@ def run_ocr(image_path):
 
     all_words = _dedup(all_words)
     rows = _group_rows(all_words)
-    return "\n".join(_row_to_line(r) for r in rows)
+    # 행 재조합(탭/공백 구분)이 끝난 뒤에 띄어쓰기를 복원한다. 재조합 전에
+    # 하면 문자 수가 바뀌어 열 간격 판단(_row_to_line의 char_w 계산)이
+    # 틀어질 수 있어, 최종 줄 단위로만 적용한다.
+    return "\n".join(correct_spacing(_row_to_line(r)) for r in rows)
 
 
-def ocr_image(image_path, text_path):
+_ISOLATE_TIMEOUT_SEC = 300  # 상품 폴더 하나에 이미지가 여러 개일 수 있어 여유 있게 잡는다
+_ISOLATE_MAX_RETRIES = 3
+
+
+def _ocr_one_inprocess(image_path, text_path):
+    """이미지 하나를 현재 프로세스 안에서 OCR한다 (엔진을 새로 만들지
+    않고 get_engine()의 캐시를 그대로 재사용). --batch 모드 안에서
+    같은 상품의 이미지 여러 개를 한 엔진으로 처리할 때 쓴다."""
     print(f"\n  파일: {image_path}")
     img = Image.open(image_path)
     print(f"  이미지 크기: {img.width}x{img.height}px")
@@ -241,19 +271,51 @@ def ocr_image(image_path, text_path):
         elapsed = time.perf_counter() - start_time
         print(f"  ❌ OCR 실패: {e}")
         print(f"  ⏱️  소요 시간: {elapsed:.1f}초")
-        return None, elapsed
+        return None
 
     os.makedirs(os.path.dirname(text_path), exist_ok=True)
     with open(text_path, "w", encoding="utf-8") as f:
         f.write(text)
 
     elapsed = time.perf_counter() - start_time
-    total_lines = len(text.splitlines())
-    print(f"  ✅ OCR 완료 → {text_path} ({total_lines}줄)")
+    print(f"  ✅ OCR 완료 → {text_path} ({len(text.splitlines())}줄)")
     print(f"  ⏱️  소요 시간: {elapsed:.1f}초")
     if text.strip():
         print(f"  미리보기: {text[:150].strip()}")
-    return text, elapsed
+    return text
+
+
+def _is_cached(image_path, text_path):
+    return (config.OCR_CACHE_ENABLED and os.path.exists(text_path) and
+            os.path.getmtime(text_path) >= os.path.getmtime(image_path))
+
+
+def _run_batch_isolated(pairs):
+    """같은 상품 폴더의 이미지들을 한 프로세스에서 처리한다 (엔진을 한
+    번만 불러와 재사용). 이미지 하나마다 새 프로세스를 쓰면 이 환경에서
+    엔진 로딩(수 초~수십 초)이 이미지 수만큼 반복돼 느려지는 걸 실측했다
+    (예전 OCR 코드는 페이지 전체를 한 프로세스에서 한 엔진으로 처리해
+    이미지가 커도 오래 안 걸렸다). 상품 폴더 단위로 묶으면 그 정도
+    속도를 대부분 되찾으면서도, 프로세스가 죽거나 멈춰도 그 상품의
+    이미지들만 영향받고 나머지 상품은 무관하게 유지된다. 이미 이
+    프로세스 안에서 처리 완료된 이미지는 파일로 남으므로 재시도 시
+    남은 것만 다시 보낸다."""
+    remaining = list(pairs)
+    for attempt in range(1, _ISOLATE_MAX_RETRIES + 1):
+        args = [sys.executable, __file__, "--batch"]
+        for image_path, text_path in remaining:
+            args += [image_path, text_path]
+        try:
+            subprocess.run(args, timeout=_ISOLATE_TIMEOUT_SEC)
+        except subprocess.TimeoutExpired:
+            print(f"    프로세스가 {_ISOLATE_TIMEOUT_SEC}초 동안 응답이 없어 종료합니다 "
+                  f"({attempt}/{_ISOLATE_MAX_RETRIES})")
+
+        remaining = [(i, t) for i, t in remaining if not _is_cached(i, t)]
+        if not remaining:
+            return
+        if attempt < _ISOLATE_MAX_RETRIES:
+            print(f"    {len(remaining)}개 남음, 재시도합니다 ({attempt}/{_ISOLATE_MAX_RETRIES})")
 
 
 def ocr_capture_dir(crawl_dir, ocr_dir=None):
@@ -275,29 +337,39 @@ def ocr_capture_dir(crawl_dir, ocr_dir=None):
 
     print(f"총 {len(images)}개 이미지 발견\n")
 
-    # crawl 상품 폴더 경로를 키로 텍스트를 모은다.
+    # 상품 폴더별로 그룹핑 — 같은 상품의 이미지들을 한 프로세스에서 처리한다.
+    by_product = {}
+    for image_path in images:
+        by_product.setdefault(product_prefix_for(image_path, crawl_dir), []).append(image_path)
+
     combined_by_crawl_prefix = {}
     pipeline_start = time.perf_counter()
     ocr_count, cache_hit_count = 0, 0
 
-    for image_path in images:
-        text_path = image_output_path(image_path, crawl_dir, ocr_dir)
-        crawl_prefix = product_prefix_for(image_path, crawl_dir)
+    for crawl_prefix, product_images in by_product.items():
+        pending = []
+        for image_path in product_images:
+            text_path = image_output_path(image_path, crawl_dir, ocr_dir)
+            if _is_cached(image_path, text_path):
+                print(f"\n  파일: {image_path}\n  (캐시 사용, OCR 생략)")
+                cache_hit_count += 1
+            else:
+                pending.append((image_path, text_path))
 
-        if config.OCR_CACHE_ENABLED and os.path.exists(text_path) and \
-                os.path.getmtime(text_path) >= os.path.getmtime(image_path):
-            with open(text_path, encoding="utf-8") as f:
-                text = f.read()
-            print(f"\n  파일: {image_path}\n  (캐시 사용, OCR 생략)")
-            cache_hit_count += 1
-        else:
-            text, _ = ocr_image(image_path, text_path)
-            ocr_count += 1
-            if text is None:
-                continue
+        if pending:
+            _run_batch_isolated(pending)
+            ocr_count += len(pending)
 
-        if text.strip():
-            combined_by_crawl_prefix.setdefault(crawl_prefix, []).append(text.strip())
+        chunks = []
+        for image_path in product_images:
+            text_path = image_output_path(image_path, crawl_dir, ocr_dir)
+            if os.path.exists(text_path):
+                with open(text_path, encoding="utf-8") as f:
+                    text = f.read().strip()
+                if text:
+                    chunks.append(text)
+        if chunks:
+            combined_by_crawl_prefix[crawl_prefix] = chunks
 
     # 상품별로 OCR 텍스트를 합쳐 ocr_dir 내 대응 폴더에 저장한다.
     # extract_info.py가 이 파일을 읽는다.
@@ -315,7 +387,31 @@ def ocr_capture_dir(crawl_dir, ocr_dir=None):
     return ocr_dir
 
 
+def _exit_now(code):
+    """작업은 끝났는데 프로세스가 안 죽고 멈추는 경우를 실측했다 (paddle
+    네이티브 라이브러리가 인터프리터 종료 시 정리 단계에서 멈추는 것으로
+    추정). sys.exit()은 이 정리 단계를 거치므로 못 피한다. os._exit()로
+    정리 단계 자체를 건너뛰고 즉시 종료한다 (버퍼는 먼저 수동으로 비운다).
+    --batch 프로세스는 어차피 _run_batch_isolated가 타임아웃으로
+    감독하니, 이건 정상 종료를 더 빠르게 만드는 것일 뿐 안전망이
+    이중으로 있다."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
 if __name__ == "__main__":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--batch":
+        # 격리 모드: 상품 하나(또는 그 일부)의 이미지들을 한 엔진으로
+        # 처리한다 (_run_batch_isolated가 띄우는 자식 프로세스의
+        # 진입점). image_path/text_path 쌍이 번갈아 온다.
+        _pairs = list(zip(sys.argv[2::2], sys.argv[3::2]))
+        for _image_path, _text_path in _pairs:
+            if _is_cached(_image_path, _text_path):
+                continue  # 같은 배치의 이전 시도에서 이미 처리됨
+            _ocr_one_inprocess(_image_path, _text_path)
+        _exit_now(0)
+
     crawl_target = sys.argv[1] if len(sys.argv) > 1 else find_latest_capture_dir(
         os.path.join(_ROOT, "crawl", "output")
     )

@@ -3,10 +3,22 @@ playwright>=1.62.0
 
 # ── ocr/ ──────────────────────────────────────────────────────────────────────
 Pillow>=12.3.0
-numpy>=2.0.0
+# paddlepaddle==3.0.0과 paddleocr>=3.7.0을 같이 쓰면 두 가지가 깨진다:
+#   1. paddleocr>=3.7.0이 요구하는 numpy>=2.0.0을 깔면 기존 pandas(numpy 1.x
+#      기준 컴파일)와 바이너리 호환성이 깨져 임포트 자체가 실패한다
+#      (ValueError: numpy.dtype size changed...).
+#   2. paddleocr>=3.7.0이 받는 모델 파일은 최신 포맷(PIR)인데
+#      paddlepaddle==3.0.0의 추론 엔진이 그 포맷을 못 읽는다
+#      (ValueError: (InvalidArgument) Type of attribute: strides is not
+#      right.) — 이건 실행할 때마다 100% 재현된다.
+# paddlepaddle==3.0.0을 그대로 쓰려면 paddleocr도 3.0.0으로 맞춰야 한다.
+numpy==1.24.4
 paddlepaddle==3.0.0
-paddleocr>=3.7.0
+paddleocr==3.0.0
 opencv-contrib-python>=4.10.0  # paddleocr 3.x 의존성
+# 한글 띄어쓰기 교정용. pykospacing(TensorFlow 의존)은 numpy를 2.x로
+# 강제 업그레이드해 위 호환성 문제를 다시 일으키므로 쓰지 않는다.
+kiwipiepy
 
 # ── extract/ ──────────────────────────────────────────────────────────────────
 requests>=2.34.0  # Ollama API 호출
