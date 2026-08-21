@@ -1,0 +1,30 @@
+[
+  {
+    "URL": "https://kr.misumi-ec.com/vona2/detail/223012352594/",
+    "상태": "captured",
+    "상품명": "핸드소켓 (1/4\")",
+    "variants": [
+      {
+        "model": "SBJ-T-WRENCH62",
+        "규격": [
+          "5mm",
+          "8"
+        ]
+      },
+      {
+        "model": "SBJ-T-WRENCH63",
+        "규격": [
+          "6mm",
+          "9.4"
+        ]
+      },
+      {
+        "model": "SBJ-T-WRENCH68",
+        "규격": [
+          "5.5mm",
+          "8.5"
+        ]
+      }
+    ]
+  }
+]
