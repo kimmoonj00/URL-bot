@@ -85,7 +85,8 @@ URL-bot/
 │       └── capture_YYYYMMDD_HHMMSS/
 │           └── {index}_{domain}/
 │               ├── ocr_text/            # 이미지별 OCR 텍스트
-│               └── ocr_combined.txt     # 상품별 OCR 텍스트 통합본
+│               ├── ocr_combined.txt     # 상품별 OCR 텍스트 통합본
+│               └── context.md           # crawl/의 context.md + OCR 텍스트 통합 마크다운
 │
 ├── extract/
 │   ├── extractor.py             # 상품 정보 추출 — 파이프라인·규칙 기반·LLM 통합 (3단계)
@@ -176,25 +177,29 @@ Playwright로 실제 Chrome 브라우저를 제어해 상품 페이지를 수집
 
 PaddleOCR 3.x (PaddleX 백엔드, PaddlePaddle 3.0.0)로 이미지에서 텍스트를 추출합니다.
 
-**사용 모델**
+**언어별 모델 자동 분기**
 
-| 역할 | 모델 | 설명 |
+| 상황 | 인식 모델 | 특징 |
 |---|---|---|
-| 텍스트 검출 (Detection) | `PP-OCRv5_mobile_det` | 이미지에서 텍스트 영역 박스를 찾는 모델. mobile = 경량·빠름 |
-| 텍스트 인식 (Recognition) | `korean_PP-OCRv5_mobile_rec` | 검출된 영역에서 실제 글자를 읽는 모델. 한국어 특화 학습 버전 |
+| 한국어 페이지 (기본값) | `korean_PP-OCRv3_mobile_rec` | 한국어 특화 모델. 자연스러운 한국어 문장에 가장 정확 |
+| 외국어 페이지 (예: 지멘스처럼 한글이 거의 없는 페이지) | `PP-OCRv5_mobile_rec` (범용 다국어) | 영문·숫자/코드(모델번호, 규격표 등) 인식이 훨씬 정확 |
 
-> **왜 이 조합인가?**  
-> PaddleOCR 3.x는 기본적으로 인식 모델로 `PP-OCRv6_medium_rec`를 선택합니다.  
-> 그러나 이 모델은 PaddlePaddle 3.0.0의 PIR(Program IR)에서 `strides` 속성 타입 불일치 버그가 있어 실행 시 오류가 납니다.  
-> `korean_PP-OCRv5_mobile_rec`는 동일 PIR 환경에서 정상 동작하는 최신 한국어 인식 모델입니다.
+> **왜 언어별로 나누는가?**  
+> 범용 모델(PP-OCRv5)은 영문과 숫자·코드는 한국어 전용 모델보다 훨씬 정확하지만, 자연스러운 한국어 문장은 한자로 잘못 읽는 경우가 많습니다(실측: 한글 마케팅 카피가 의미 없는 한자로 깨짐). 반대로 한국어 전용 모델은 작은 글씨 표나 영문 텍스트에 약합니다. 그래서 crawl/이 만든 `context.md`의 한글 비율을 보고(`detect_product_lang`) 상품 페이지마다 알맞은 모델을 자동으로 고릅니다. `paddleocr==3.7.0` 이상은 `PP-OCRv6_medium_rec` 같은 모델을 기본 선택해 PaddlePaddle 3.0.0과 모델 포맷(PIR)이 안 맞아 오류가 나므로, `paddleocr`는 3.0.0으로 고정하고 `ocr_version`을 명시해서 씁니다.
 
 **처리 방식**
 
 - **대상**: `assets/*.png`(이미지·Canvas) + `product.png`(상품 본문 스크린샷)
 - **타일 분할**: 긴 이미지를 일정 높이로 잘라 처리하고 y좌표 오프셋으로 보정합니다.
 - **IOU 중복 제거**: 타일 경계에서 중복 인식된 단어를 신뢰도 기준으로 제거합니다.
-- **좌표 기반 행·열 재조합**: 단어별 바운딩 박스 y좌표로 행을 그룹핑하고, x좌표 간격이 넓으면 탭으로 구분해 표 구조를 보존합니다.
+- **블록 분리**: 제품 카드 + 표처럼 가로로 나란히 배치된 서로 다른 콘텐츠가 한 줄로 섞이지 않도록, 세로로 길게 비어 있는 영역을 기준으로 블록을 먼저 나눕니다.
+- **소형 텍스트 확대 재인식**: 평균 글자 높이가 작은(표처럼 촘촘한) 블록은 그 영역만 원본에서 잘라 확대한 뒤 같은 엔진으로 다시 인식합니다.
+- **표 헤더 기준 열 재조합**: 3~6열짜리 표는 헤더 행의 열 위치(x좌표)를 기준 삼아 데이터 행의 단어를 배정합니다 — 열 사이 인쇄 간격이 좁아 같은 행 안의 간격만으로는 못 나누는 경우도 표 구조를 그대로 따라갑니다. 일반 문단·"라벨: 값" 목록에는 적용하지 않도록 조건을 두어 회귀를 방지합니다.
+- **좌표 기반 행·열 재조합**: 그 외에는 단어별 바운딩 박스 y좌표로 행을 그룹핑하고, x좌표 간격이 넓으면 탭으로 구분합니다.
+- **띄어쓰기 복원**: 한국어 인식 결과는 `kiwipiepy`(형태소 분석기)로 띄어쓰기를 복원합니다.
 - **캐시**: 이미 처리한 이미지는 재실행 시 건너뜁니다(`config.py`에서 끌 수 있음).
+- **상품 단위 프로세스 격리 + 자동 재시도**: 메모리가 넉넉하지 않은 환경에서 PaddleOCR 네이티브 추론이 죽거나 멈추는 경우가 있어, 상품 폴더 단위로 별도 프로세스에서 처리하고 실패 시 자동 재시도합니다 — 한 상품이 실패해도 다른 상품과 이미 처리된 결과에는 영향이 없습니다.
+- **통합 마크다운(`context.md`) 생성**: crawl/이 만든 DOM 표·텍스트 마크다운에 OCR 텍스트 섹션을 더해, LLM에 바로 넘길 수 있는 상품별 통합 문서를 `ocr/output/`에 생성합니다.
 
 ### 3단계: 정보 추출 (extract/extractor.py)
 
@@ -216,7 +221,7 @@ PaddleOCR 3.x (PaddleX 백엔드, PaddlePaddle 3.0.0)로 이미지에서 텍스�
 | 파일 | 주요 설정 |
 |---|---|
 | `crawl/config.py` | `HEADLESS`, `DEFAULT_VIEWPORT`, `EXCLUDE_DOMAINS`, 사이트별 선택자, OCR 이미지 최소 크기 |
-| `ocr/config.py` | `OCR_TILE_HEIGHT`, `OCR_CONFIDENCE_THRESHOLD`, `OCR_CACHE_ENABLED`, PaddleOCR 엔진 파라미터 |
+| `ocr/config.py` | `OCR_TILE_HEIGHT`, `OCR_CONFIDENCE_THRESHOLD`, `OCR_CACHE_ENABLED`, `OCR_VERSION`/`OCR_FOREIGN_LANG_OCR_VERSION`(언어별 모델), `OCR_LANG_DETECT_MAX_HANGUL_RATIO`(언어 판단 기준) |
 | `extract/config.py` | `EXTRACTION_ENGINE` (`"qwen"` 또는 `"rules"`), `OLLAMA_MODEL`, `SPEC_LABEL_KEYWORDS` |
 
 ---
