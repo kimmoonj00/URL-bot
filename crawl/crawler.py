@@ -114,24 +114,33 @@ MORE_PATTERN = re.compile(
 # (기존에는 요소마다 is_visible()/bounding_box()/evaluate()를 각각 호출해
 #  요소 수만큼 왕복(round-trip)이 발생했다. 이제 프레임당 한 번의 evaluate로 끝낸다.)
 _SCAN_MEDIA_JS = """
-([minWidth, minHeight]) => Array.from(document.querySelectorAll('img, canvas')).map((el, i) => {
-    const rect = el.getBoundingClientRect();
-    const style = window.getComputedStyle(el);
-    const visible = style.visibility !== 'hidden'
-        && style.display !== 'none'
-        && parseFloat(style.opacity || '1') > 0
-        && rect.width >= minWidth
-        && rect.height >= minHeight;
-    return {
-        index: i,
-        tag: el.tagName.toLowerCase(),
-        src: el.tagName.toLowerCase() === 'img' ? (el.currentSrc || el.src || '') : '',
-        alt: el.getAttribute('alt') || '',
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        visible,
-    };
-}).filter(item => item.visible)
+([minWidth, minHeight, scopeSelector]) => {
+    const all = Array.from(document.querySelectorAll('img, canvas'));
+    let scopeSet = null;
+    if (scopeSelector) {
+        const root = document.querySelector(scopeSelector);
+        if (root) scopeSet = new Set(Array.from(root.querySelectorAll('img, canvas')));
+    }
+    return all.map((el, i) => {
+        if (scopeSet && !scopeSet.has(el)) return null;
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const visible = style.visibility !== 'hidden'
+            && style.display !== 'none'
+            && parseFloat(style.opacity || '1') > 0
+            && rect.width >= minWidth
+            && rect.height >= minHeight;
+        return {
+            index: i,
+            tag: el.tagName.toLowerCase(),
+            src: el.tagName.toLowerCase() === 'img' ? (el.currentSrc || el.src || '') : '',
+            alt: el.getAttribute('alt') || '',
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            visible,
+        };
+    }).filter(item => item && item.visible);
+}
 """
 
 
@@ -421,8 +430,9 @@ def save_page_sources(page):
     return len(tables), dom_text, tables
 
 
-def capture_ocr_assets(page, prefix):
+def capture_ocr_assets(page, prefix, product_selector=None):
     """DOM으로 읽을 수 없는 이미지/Canvas만 개별 저장한다.
+    product_selector가 주어지면 메인 프레임에서 해당 영역 안의 이미지만 스캔한다.
     batch evaluate로 스캔 비용을 줄이고, 저장 후 색 보정을 적용한다."""
     asset_dir = os.path.join(prefix, "assets")
     os.makedirs(asset_dir, exist_ok=True)
@@ -432,8 +442,11 @@ def capture_ocr_assets(page, prefix):
     for frame_index, frame in enumerate(page.frames):
         if len(manifest) >= MAX_OCR_ASSETS_PER_PAGE:
             break
+        # 메인 프레임에만 상품 영역 스코프를 적용한다. 아이프레임은 보통 작은
+        # 임베드 콘텐츠라 전체 스캔해도 노이즈가 적다.
+        scope = product_selector if frame_index == 0 else None
         try:
-            candidates = frame.evaluate(_SCAN_MEDIA_JS, [MIN_OCR_ASSET_WIDTH, MIN_OCR_ASSET_HEIGHT])
+            candidates = frame.evaluate(_SCAN_MEDIA_JS, [MIN_OCR_ASSET_WIDTH, MIN_OCR_ASSET_HEIGHT, scope])
         except Exception:
             continue
         if not candidates:
@@ -574,8 +587,10 @@ def capture_one(page, url, index, total, output_dir):
     ensure_tables_ready(page)
 
     table_count, dom_text, tables = save_page_sources(page)
-    ocr_assets = capture_ocr_assets(page, prefix)
     product_selector, product_html = get_product_region_html(page, url)
+    if product_selector:
+        print(f"   상품 영역 감지: {product_selector} → 해당 영역 이미지만 캡처")
+    ocr_assets = capture_ocr_assets(page, prefix, product_selector)
 
     write_context_md(
         prefix=prefix,
@@ -605,13 +620,17 @@ def capture_one(page, url, index, total, output_dir):
     return "captured"
 
 
-def run_capture_bot(run_ocr_and_extract=True):
+def run_capture_bot(run_ocr_and_extract=True, urls=None):
+    source = urls if urls is not None else TARGET_URLS
     urls = [
-        url for url in TARGET_URLS
+        url for url in source
         if not any(excluded.lower() in (urlparse(url).hostname or "").lower() for excluded in EXCLUDE_DOMAINS)
     ]
     if not urls:
-        print("캡처할 URL이 없습니다. urls.txt를 확인하세요.")
+        if source:
+            print("캡처할 URL이 없습니다. 제외 도메인 목록을 확인하세요.")
+        else:
+            print("캡처할 URL이 없습니다. urls.txt를 확인하거나 터미널에서 URL을 직접 입력하세요.")
         return
 
     output_dir = os.path.join(
