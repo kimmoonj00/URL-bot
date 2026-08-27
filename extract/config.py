@@ -30,7 +30,7 @@ OLLAMA_TIMEOUT_SECONDS = 600
 # 호출 사이에 모델을 메모리에 얼마나 유지할지.
 OLLAMA_KEEP_ALIVE = "5m"
 # 응답 최대 토큰 수.
-OLLAMA_NUM_PREDICT = 800
+OLLAMA_NUM_PREDICT = 1500
 # context.md(상품 영역+테이블+DOM)의 최대 전달 길이.
 # 이전 dom/tables/product_dom 3개 소스를 하나로 통합했으므로 넉넉하게 설정한다.
 # qwen3:4b 기준 num_ctx=12288 ≈ 6144토큰 여유(시스템 프롬프트 제외),

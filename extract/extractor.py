@@ -44,6 +44,44 @@ class QwenExtractionError(Exception):
     pass
 
 
+# few-shot 예시: (user_input, assistant_output) 쌍
+# 규칙만으로 Qwen이 놓치는 두 가지 패턴을 예시로 직접 보여준다.
+FEW_SHOT_EXAMPLES = [
+    # 예시 1: 다중 variant 테이블 → 모델별 규격 분리 + 라벨 유지
+    (
+        "URL: https://example.com/driver/\n\n"
+        "[페이지 제목]\n일자 드라이버 (334)\n\n"
+        "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
+        "## 규격 테이블\n\n"
+        "| 두형 | 규격(mm) | 날장(mm) | 전장(mm) | 원산지 | 모델명 |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 일자 | 5 | 100 | 198 | 체코 | 05007610001 |\n"
+        "| 일자 | 6 | 150 | 255 | 체코 | 05340330001 |\n\n"
+        "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
+        '{"product_name": "일자 드라이버 (334)", "variants": ['
+        '{"model": "05007610001", "규격": ["규격: 5mm", "날장: 100mm", "전장: 198mm", "원산지: 체코"]}, '
+        '{"model": "05340330001", "규격": ["규격: 6mm", "날장: 150mm", "전장: 255mm", "원산지: 체코"]}]}',
+    ),
+    # 예시 2: 행정/물류 정보가 섞인 페이지 → 물리 규격만 추출
+    (
+        "URL: https://example.com/product/500-033260\n\n"
+        "[페이지 제목]\nDPU - Device Programmer / Test Unit\n\n"
+        "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
+        "모델: 500-033260\n"
+        "무게: 4.321 lb\n"
+        "치수: 18.95 x 25.75 x 6.70 IN\n"
+        "PLM 상태: PM300:Active Product\n"
+        "ECCN: AL:N / EAR99\n"
+        "출하 소요일: 1 Day\n"
+        "통관코드: 8537109170\n"
+        "원산지: United States of America\n"
+        "RoHS: 해당없음\n\n"
+        "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
+        '{"product_name": "DPU - Device Programmer / Test Unit", "variants": ['
+        '{"model": "500-033260", "규격": ["무게: 4.321 lb", "치수: 18.95 x 25.75 x 6.70 IN", "원산지: United States of America"]}]}',
+    ),
+]
+
 SYSTEM_PROMPT = (
     "너는 이커머스/산업용 부품 상세페이지에서 핵심 상품정보만 뽑아내는 추출기다. "
     "아래 규칙을 반드시 지켜라.\n"
@@ -115,6 +153,9 @@ def _extract_json_object(raw_text):
     raise QwenExtractionError(f"응답에서 JSON을 찾지 못함: {raw_text[:200]!r}")
 
 
+_OLLAMA_CONNECT_RETRIES = 3
+_OLLAMA_CONNECT_WAIT = 8  # 초
+
 def call_ollama(messages):
     import requests
 
@@ -132,19 +173,25 @@ def call_ollama(messages):
             "num_ctx": 12288,
         },
     }
-    try:
-        response = requests.post(url, json=payload, timeout=config.OLLAMA_TIMEOUT_SECONDS)
-        response.raise_for_status()
-    except requests.exceptions.ConnectionError as error:
-        raise QwenExtractionError(
-            f"Ollama({config.OLLAMA_BASE_URL})에 연결할 수 없습니다. "
-            f"'ollama serve'가 실행 중인지, 모델이 'ollama pull {config.OLLAMA_MODEL}'로 "
-            f"받아져 있는지 확인하세요. 원본 오류: {error}"
-        ) from error
-    except requests.exceptions.Timeout as error:
-        raise QwenExtractionError(f"Ollama 응답 시간 초과({config.OLLAMA_TIMEOUT_SECONDS}초): {error}") from error
-    except requests.exceptions.HTTPError as error:
-        raise QwenExtractionError(f"Ollama 호출 실패({response.status_code}): {response.text[:300]}") from error
+    for attempt in range(_OLLAMA_CONNECT_RETRIES):
+        try:
+            response = requests.post(url, json=payload, timeout=config.OLLAMA_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            break
+        except requests.exceptions.ConnectionError as error:
+            if attempt < _OLLAMA_CONNECT_RETRIES - 1:
+                print(f"   ⚠️  Ollama 연결 실패, {_OLLAMA_CONNECT_WAIT}초 후 재시도 ({attempt + 1}/{_OLLAMA_CONNECT_RETRIES - 1})...")
+                time.sleep(_OLLAMA_CONNECT_WAIT)
+                continue
+            raise QwenExtractionError(
+                f"Ollama({config.OLLAMA_BASE_URL})에 연결할 수 없습니다. "
+                f"'ollama serve'가 실행 중인지, 모델이 'ollama pull {config.OLLAMA_MODEL}'로 "
+                f"받아져 있는지 확인하세요. 원본 오류: {error}"
+            ) from error
+        except requests.exceptions.Timeout as error:
+            raise QwenExtractionError(f"Ollama 응답 시간 초과({config.OLLAMA_TIMEOUT_SECONDS}초): {error}") from error
+        except requests.exceptions.HTTPError as error:
+            raise QwenExtractionError(f"Ollama 호출 실패({response.status_code}): {response.text[:300]}") from error
 
     body = response.json()
     content = body.get("message", {}).get("content", "")
@@ -160,10 +207,11 @@ def extract_with_qwen(url, title, context_text, ocr_text):
         context=_truncate(context_text),
         ocr=_truncate(ocr_text),
     )
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for ex_user, ex_assistant in FEW_SHOT_EXAMPLES:
+        messages.append({"role": "user", "content": ex_user})
+        messages.append({"role": "assistant", "content": ex_assistant})
+    messages.append({"role": "user", "content": user_prompt})
     result = call_ollama(messages)
 
     if not isinstance(result, dict):
