@@ -17,6 +17,11 @@ numpy==1.24.4
 paddlepaddle==3.0.0
 paddleocr==3.0.0
 opencv-contrib-python>=4.10.0  # paddleocr 3.x 의존성
+# paddleocr(paddlex)가 결과 시각화용으로 matplotlib을 버전 제한 없이 요구한다.
+# 그대로 두면 pip가 매번 최신 matplotlib을 까는데, 최신판은 numpy>=1.25를
+# 요구해 위 numpy==1.24.4 고정과 충돌한다(ImportError: Matplotlib requires
+# numpy>=1.25). numpy 1.24.4와 맞는 버전으로 명시해 고정한다.
+matplotlib==3.8.4
 # 한글 띄어쓰기 교정용. pykospacing(TensorFlow 의존)은 numpy를 2.x로
 # 강제 업그레이드해 위 호환성 문제를 다시 일으키므로 쓰지 않는다.
 kiwipiepy

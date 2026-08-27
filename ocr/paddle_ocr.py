@@ -40,6 +40,17 @@ os.environ.setdefault("FLAGS_use_mkldnn", "0")  # oneDNN Windows 호환성 버�
 # 예전 실행기로 되돌려 이 변환 경로 자체를 타지 않게 한다.
 os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
 
+# paddlex는 site-packages 내부에 캐시해 둔 폰트 파일(PingFang-SC-Regular.ttf 등,
+# 결과 시각화용이라 우리 텍스트 인식 결과와는 무관)이 없으면 import 시점에
+# 곧바로 원격 다운로드를 시도한다. paddlex를 재설치할 때마다 이 캐시가
+# 지워지는데, 이 네트워크는 그 다운로드 URL에서 SSL 인증서 검증에 실패해
+# (자체 서명 인증서가 체인에 포함됨) import 자체가 죽는다. 로컬 폰트 파일을
+# 지정해 다운로드 시도 자체를 건너뛰게 한다.
+if not os.environ.get("PADDLE_PDX_LOCAL_FONT_FILE_PATH"):
+    _local_font = r"C:\Windows\Fonts\malgun.ttf"
+    if os.path.isfile(_local_font):
+        os.environ["PADDLE_PDX_LOCAL_FONT_FILE_PATH"] = _local_font
+
 # ocr_version별로 엔진을 따로 캐시한다 — 상품 페이지 언어에 따라
 # PP-OCRv3(한국어 전용)와 PP-OCRv5(범용 다국어)를 다르게 골라 쓰기
 # 때문이다 (detect_product_lang 참고).
