@@ -35,6 +35,8 @@ PRODUCT_REGION_SELECTORS = {
     "products.swagelok.com": ["main", "#main-content", ".product-detail"],
     "item.gmarket.co.kr": ["#container", "#itemcase_basic", "main"],
     "itempage3.auction.co.kr": ["#container", "#itemcase_basic", "main"],
+    "www.navimro.com": ["#container", "#prdDetail", ".product_view", "#product_detail", ".xans-product-detail", "#content"],
+    "prod.danawa.com": ["#productDescriptionArea", "#productDetail", ".prod_detail_area", "#danawa_product_info", "#product_detail"],
 }
 
 # 상품명 후보 선택자.
