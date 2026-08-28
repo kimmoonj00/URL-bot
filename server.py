@@ -29,7 +29,6 @@ class RunRequest(BaseModel):
 
 class ExtractRequest(BaseModel):
     job_id: str
-    api_key: str
 
 
 class _LogCapture:
@@ -201,13 +200,36 @@ async def job_results(job_id: str):
 
 
 @app.post("/api/extract")
-async def extract_stub(req: ExtractRequest):
-    # TODO: GPT-4o-mini API 연동 후 구현
-    # 1. jobs[req.job_id]["output_dir"] 에서 context.md 읽기
-    # 2. OpenAI client 초기화 (코드 내 API 키 사용)
-    # 3. extractor.build_summary() 호출 또는 직접 GPT 호출
-    # 4. 결과 JSON 반환
-    return {"message": "API 키 연동 후 사용 가능합니다.", "status": "stub"}
+async def run_extract(req: ExtractRequest):
+    if req.job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
+
+    output_dir = jobs[req.job_id].get("output_dir")
+    ocr_dir = jobs[req.job_id].get("ocr_dir")
+
+    if not output_dir or not os.path.isdir(output_dir):
+        raise HTTPException(status_code=400, detail="크롤링 결과가 없습니다. 먼저 크롤링을 실행하세요.")
+
+    def _run():
+        # .env 파일 로드 (python-dotenv 있으면)
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(os.path.join(_ROOT, ".env"))
+        except ImportError:
+            pass
+        from extract.extractor import build_summary
+        return build_summary(output_dir, ocr_dir=ocr_dir)
+
+    try:
+        by_domain = await asyncio.to_thread(_run)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    results = []
+    for domain_records in by_domain.values():
+        results.extend(domain_records)
+
+    return {"results": results}
 
 
 # 정적 파일 서빙 (반드시 마지막에 등록)

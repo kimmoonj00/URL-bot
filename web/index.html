@@ -68,20 +68,27 @@
         <div id="result-content"></div>
       </section>
 
-      <!-- Step 2: 데이터 추출 (stub) -->
+      <!-- Step 2: 데이터 추출 -->
       <section class="card" id="extract-section">
         <div class="section-header">
-          <span class="step-badge step-badge--muted">2</span>
+          <span class="step-badge">2</span>
           <h2>데이터 추출</h2>
-          <span class="badge-soon">준비 중</span>
         </div>
         <p class="description">
-          GPT-4o-mini로 상품명, 모델번호, 규격을 구조화합니다.<br>
-          API 키 연동 후 사용할 수 있습니다.
+          GPT-4o-mini로 상품명, 모델번호, 규격을 구조화합니다.
         </p>
-        <button id="extract-btn" class="btn btn-secondary" disabled>
+        <button id="extract-btn" class="btn btn-secondary">
           Extract 실행
         </button>
+      </section>
+
+      <!-- 추출 결과 -->
+      <section class="card" id="extract-result-section" hidden>
+        <div class="section-header">
+          <h2>추출 결과</h2>
+          <button id="close-extract-btn" class="btn-icon" title="닫기">✕</button>
+        </div>
+        <div id="extract-result-content"></div>
       </section>
 
       <!-- 실행 기록 -->

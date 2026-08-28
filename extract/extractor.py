@@ -156,6 +156,24 @@ def _extract_json_object(raw_text):
 _OLLAMA_CONNECT_RETRIES = 3
 _OLLAMA_CONNECT_WAIT = 8  # 초
 
+def call_gpt(messages):
+    from openai import OpenAI
+    if not config.OPENAI_API_KEY:
+        raise QwenExtractionError("OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
+    client = OpenAI(api_key=config.OPENAI_API_KEY)
+    response = client.chat.completions.create(
+        model=config.OPENAI_MODEL,
+        messages=messages,
+        temperature=0,
+        response_format={"type": "json_object"},
+        max_tokens=config.OPENAI_MAX_TOKENS,
+    )
+    content = response.choices[0].message.content
+    if not content or not content.strip():
+        raise QwenExtractionError("GPT가 빈 응답을 반환함")
+    return json.loads(content)
+
+
 def call_ollama(messages):
     import requests
 
@@ -198,6 +216,50 @@ def call_ollama(messages):
     if not content.strip():
         raise QwenExtractionError(f"Ollama가 빈 응답을 반환함: {body}")
     return _extract_json_object(content)
+
+
+def extract_with_gpt(url, title, context_text, ocr_text):
+    user_prompt = USER_PROMPT_TEMPLATE.format(
+        url=url,
+        title=title or "(제목 없음)",
+        context=_truncate(context_text, config.OPENAI_MAX_SOURCE_CHARS),
+        ocr=_truncate(ocr_text, config.OPENAI_MAX_SOURCE_CHARS),
+    )
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for ex_user, ex_assistant in FEW_SHOT_EXAMPLES:
+        messages.append({"role": "user", "content": ex_user})
+        messages.append({"role": "assistant", "content": ex_assistant})
+    messages.append({"role": "user", "content": user_prompt})
+    result = call_gpt(messages)
+
+    if not isinstance(result, dict):
+        raise QwenExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
+
+    def as_str_list(value):
+        if value is None:
+            return []
+        items = [value] if isinstance(value, str) else [str(v) for v in value] if isinstance(value, list) else [str(value)]
+        cleaned, seen = [], set()
+        for item in items:
+            item = item.strip()
+            if item and item not in seen:
+                seen.add(item)
+                cleaned.append(item[:150])
+        return cleaned
+
+    product_name = str(result.get("product_name", "")).strip()[:200]
+    variants_raw = result.get("variants")
+    if isinstance(variants_raw, list) and variants_raw:
+        variants = [
+            {"model": str(v.get("model", "")).strip()[:200], "규격": as_str_list(v.get("규격"))}
+            for v in variants_raw if isinstance(v, dict)
+        ]
+    else:
+        models = as_str_list(result.get("model")) or [""]
+        specs = as_str_list(result.get("규격"))
+        variants = [{"model": m, "규격": specs} for m in models]
+
+    return {"product_name": product_name, "variants": variants}
 
 
 def extract_with_qwen(url, title, context_text, ocr_text):
@@ -450,6 +512,28 @@ def build_record_with_rules(url, metadata, host, dom_text, product_dom_text, tab
     }
 
 
+def build_record_with_gpt(url, metadata, context_text, ocr_text):
+    started = time.perf_counter()
+    result = extract_with_gpt(
+        url=url,
+        title=metadata.get("title", ""),
+        context_text=context_text,
+        ocr_text=ocr_text,
+    )
+    elapsed = time.perf_counter() - started
+    print(f"   🤖 GPT 추출: {url} ({elapsed:.1f}초)")
+
+    if not result["product_name"] and not result["variants"]:
+        raise QwenExtractionError(f"GPT가 빈 결과를 반환함: {url}")
+
+    return {
+        "URL": url,
+        "상태": "captured",
+        "상품명": result["product_name"],
+        "variants": result["variants"],
+    }
+
+
 def build_record_with_qwen(url, metadata, context_text, ocr_text):
     started = time.perf_counter()
     result = extract_with_qwen(
@@ -503,7 +587,12 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
         if product_md:
             context_text = product_md  # context + OCR 통합본
 
-    if config.EXTRACTION_ENGINE == "qwen":
+    if config.EXTRACTION_ENGINE == "gpt":
+        try:
+            return build_record_with_gpt(url, metadata, context_text, ocr_text)
+        except Exception as error:
+            print(f"   ⚠️  GPT 추출 실패({error}) → 규칙 기반으로 대체합니다: {url}")
+    elif config.EXTRACTION_ENGINE == "qwen":
         try:
             return build_record_with_qwen(url, metadata, context_text, ocr_text)
         except Exception as error:

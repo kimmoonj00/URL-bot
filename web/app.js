@@ -11,8 +11,11 @@ const viewResultBtn  = document.getElementById('view-result-btn');
 const resultSection  = document.getElementById('result-section');
 const resultContent  = document.getElementById('result-content');
 const closeResultBtn = document.getElementById('close-result-btn');
-const extractBtn     = document.getElementById('extract-btn');
-const jobList        = document.getElementById('job-list');
+const extractBtn            = document.getElementById('extract-btn');
+const extractResultSection  = document.getElementById('extract-result-section');
+const extractResultContent  = document.getElementById('extract-result-content');
+const closeExtractBtn       = document.getElementById('close-extract-btn');
+const jobList               = document.getElementById('job-list');
 
 let currentJobId = null;
 let eventSource  = null;
@@ -213,11 +216,74 @@ async function renderHistory() {
   }
 }
 
-// ── Extract (stub) ───────────────────────────────────────────────────────────
+// ── Extract ──────────────────────────────────────────────────────────────────
 
-extractBtn.addEventListener('click', () => {
-  alert('API 키 연동 후 사용 가능합니다.');
+closeExtractBtn.addEventListener('click', () => {
+  extractResultSection.hidden = true;
+  extractResultContent.innerHTML = '';
 });
+
+extractBtn.addEventListener('click', async () => {
+  if (!currentJobId) {
+    alert('먼저 크롤링을 실행하세요.');
+    return;
+  }
+
+  extractBtn.disabled = true;
+  extractBtn.textContent = '추출 중...';
+
+  try {
+    const res = await fetch('/api/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: currentJobId }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      alert(`추출 실패: ${err.detail}`);
+      return;
+    }
+
+    const { results } = await res.json();
+    renderExtractResults(results);
+  } catch (e) {
+    alert(`오류: ${e.message}`);
+  } finally {
+    extractBtn.disabled = false;
+    extractBtn.textContent = 'Extract 실행';
+  }
+});
+
+function renderExtractResults(results) {
+  extractResultSection.hidden = false;
+  extractResultContent.innerHTML = results.map(r => {
+    const variants = r['variants'] || [];
+    const variantsHtml = variants.length
+      ? `<table class="extract-table">
+          <thead><tr><th>모델번호</th><th>규격</th></tr></thead>
+          <tbody>
+            ${variants.map(v => `
+              <tr>
+                <td class="model-cell">${escHtml(v.model || '—')}</td>
+                <td>${(v['규격'] || []).map(s => `<div>${escHtml(s)}</div>`).join('')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`
+      : '<p class="empty-state">추출된 규격 없음</p>';
+
+    return `
+      <div class="extract-card">
+        <div class="extract-product-name">${escHtml(r['상품명'] || '(상품명 없음)')}</div>
+        <a class="result-url-link" href="${escHtml(r['URL'])}" target="_blank" rel="noopener">${escHtml(r['URL'])}</a>
+        ${variantsHtml}
+      </div>
+    `;
+  }).join('');
+
+  extractResultSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 // ── 유틸 ─────────────────────────────────────────────────────────────────────
 
