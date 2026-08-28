@@ -153,6 +153,7 @@ def image_output_path(image_path, crawl_dir, ocr_dir):
 
 _HANGUL_RE = re.compile(r"[가-힣]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
+_DIGIT_RE = re.compile(r"[0-9]")
 _product_lang_cache = {}
 
 
@@ -367,6 +368,7 @@ def _reconstruct_table_rows(rows: list):
 
     anchors = [w["xc"] for w in rows[0]]
     assigned_rows = []
+    broken = 0
     for row in rows:
         assignments = []
         for w in row:
@@ -374,11 +376,24 @@ def _reconstruct_table_rows(rows: list):
             assignments.append((idx, w))
         col_order = [idx for idx, _ in assignments]
         if col_order != sorted(col_order):
-            return None  # 표라면 있어선 안 되는 순서 역전 — 표가 아니라고 보고 폴백
+            broken += 1
         assigned_rows.append(assignments)
 
+    # 절반 넘게 순서가 역전되면 애초에 표가 아니라고 보고 통째로 폴백한다.
+    # 소수 행만 어긋난 경우(예: 일부 행을 다른 모델로 재인식해 좌표가
+    # 살짝 밀린 경우)는 그 행만 간격 기반으로 대체하고 나머지 멀쩡한
+    # 행들의 열 구조는 그대로 살린다 — 안 그러면 행 하나 때문에 표
+    # 전체가 구조를 잃는다(실측: 나비엠알오 표에서 재인식한 행 일부의
+    # 좌표가 어긋나 전체가 깨짐).
+    if broken > len(rows) / 2:
+        return None
+
     lines = []
-    for assignments in assigned_rows:
+    for row, assignments in zip(rows, assigned_rows):
+        col_order = [idx for idx, _ in assignments]
+        if col_order != sorted(col_order):
+            lines.append(_row_to_line(row))
+            continue
         columns = [[] for _ in anchors]
         for idx, w in assignments:
             columns[idx].append(w)
@@ -442,6 +457,157 @@ def _reocr_small_text_block(img, block, engine):
     return new_words
 
 
+# detect_product_lang은 상품 페이지(context.md) 전체 기준이라, 한국어
+# 위주 페이지 안에 박힌 순수 영문/숫자 행(규격표 이미지의 데이터 행 등)은
+# 여전히 한국어 모델로 인식된다 — 실측 사례: 나비엠알오 L렌치 규격표가
+# "SB-LWSl?", "152253456810"처럼 대소문자·쉼표·마침표가 다 깨짐.
+# 페이지 판정과 달리 한글 '비율'로 보면 안 된다 — 표 헤더 행("모델No.",
+# "구성", "형태" 등)의 짧은 한글 라벨 몇 글자만으로도 비율이 기준을
+# 넘어버려 정작 숫자/모델명이 밀집된 행을 놓친다. 대신 숫자·라틴 문자의
+# '절대 개수'가 이 정도면 표 데이터 행으로 보고 되돌린다(한국어 모델이
+# 이미 잘 읽는 자연스러운 한국어 문장에는 이 조건이 거의 걸리지 않는다
+# — 문장에는 숫자가 이만큼 몰려 있지 않다). 블록 전체가 아니라 각 행에
+# 개별 적용해, 숫자가 없는 헤더 행은 그대로 한국어 모델에 남긴다.
+_ROW_FOREIGN_MIN_DIGIT_CHARS = 8
+_ROW_FOREIGN_MIN_LATIN_CHARS = 6
+
+
+def _reocr_foreign_block(img, row, ocr_version, force=False):
+    """row(한 행의 단어 목록)가 실제로는 페이지 전체 언어와 다른
+    외국어/숫자 위주 콘텐츠로 보이면 반대 모델(PP-OCRv5 등)로 다시
+    인식해 대체한다. (row, 외국어_모델_사용_여부) 튜플을 반환한다 —
+    호출 쪽에서 이 정보로 한국어 전용 띄어쓰기 교정(kiwipiepy) 적용
+    여부를 정한다.
+
+    force=True면 이 행 자체의 숫자/라틴 개수 조건을 건너뛴다 — 표의
+    데이터 행 전체를 한 그룹으로 이미 판단한 뒤 개별 행에 적용할 때
+    쓴다. 첫 인식이 심하게 깨지면 글자↔숫자가 서로 뒤섞여 행 하나만
+    봤을 때 조건 자체를 못 채우는 행이 생긴다(실측: 나비엠알오 표 5개
+    데이터 행 중 2개, "SB"가 "58"로 읽혀 라틴 문자 신호가 사라짐)."""
+    if not row or ocr_version != config.OCR_VERSION:
+        # 이미 외국어 모델을 쓰는 페이지면 되돌리지 않는다 — 자연스러운
+        # 한국어 문장을 외국어 모델로 잘못 읽는 위험이 그 반대보다 크다
+        # (ocr/config.py의 OCR_VERSION 주석 참고).
+        return row, False
+
+    if not force:
+        text = "".join(w["text"] for w in row)
+        digit_count = len(_DIGIT_RE.findall(text))
+        latin_count = len(_LATIN_RE.findall(text))
+        if digit_count < _ROW_FOREIGN_MIN_DIGIT_CHARS or latin_count < _ROW_FOREIGN_MIN_LATIN_CHARS:
+            return row, False
+
+    foreign_version = config.OCR_FOREIGN_LANG_OCR_VERSION
+    foreign_engine = get_engine(foreign_version)
+
+    x1 = max(0, int(min(w["x1"] for w in row) - _REOCR_PADDING))
+    y1 = max(0, int(min(w["y1"] for w in row) - _REOCR_PADDING))
+    x2 = min(img.width, int(max(w["x2"] for w in row) + _REOCR_PADDING))
+    y2 = min(img.height, int(max(w["y2"] for w in row) + _REOCR_PADDING))
+    if x2 <= x1 or y2 <= y1:
+        return row, False
+
+    crop = img.crop((x1, y1, x2, y2))
+    big = crop.resize((crop.width * _REOCR_UPSCALE, crop.height * _REOCR_UPSCALE), Image.LANCZOS)
+    try:
+        result = foreign_engine.predict(np.array(big))
+    except Exception:
+        return row, False
+    new_words = _words_from_result(result)
+    if not new_words:
+        return row, False
+
+    for w in new_words:
+        for key in ("x1", "x2", "xc"):
+            w[key] = w[key] / _REOCR_UPSCALE + x1
+        for key in ("y1", "y2", "yc"):
+            w[key] = w[key] / _REOCR_UPSCALE + y1
+        w["h"] /= _REOCR_UPSCALE
+        w["w"] /= _REOCR_UPSCALE
+
+    print(f"    숫자/영문 밀집 행 감지 → {foreign_version}로 재인식: "
+          f"{len(row)}개 → {len(new_words)}개 단어")
+    return new_words, True
+
+
+# 행 단위 판정의 한계: "모델No./구성/세트수량"처럼 숫자·영문이 밀집된
+# 열과 "형태"(쇼트/롱/일반)처럼 한글인 열이 같은 행에 있으면, 행 전체를
+# 외국어 모델로 넘길 때 그 안의 한글 값까지 같이 깨진다(실측: 나비엠알오
+# 표). 표는 이미 헤더 열 위치(anchor)로 구조를 알고 있으니, 그 구조를
+# 그대로 이용해 열 단위로 판정하면 숫자 열만 정확히 골라 바꾸고 한글
+# 열은 절대 건드리지 않을 수 있다.
+_COL_FOREIGN_MIN_DIGIT_CHARS = 6
+_COL_FOREIGN_MIN_LATIN_CHARS = 6
+
+
+def _column_is_foreign(words):
+    """words: 표의 한 '열' 전체(여러 데이터 행에 걸친)에 배정된 단어들.
+    한글이 하나라도 섞여 있으면(형태 열 등) 절대 바꾸지 않는다 —
+    숫자/영문 열만 정확히 골라내는 게 목적이라 애매하면 그대로 둔다."""
+    text = "".join(w["text"] for w in words)
+    if _HANGUL_RE.search(text):
+        return False
+    digit_count = len(_DIGIT_RE.findall(text))
+    latin_count = len(_LATIN_RE.findall(text))
+    return digit_count >= _COL_FOREIGN_MIN_DIGIT_CHARS or latin_count >= _COL_FOREIGN_MIN_LATIN_CHARS
+
+
+def _reocr_foreign_columns(img, rows, ocr_version):
+    """rows[0]를 헤더로 보고 각 데이터 행의 단어를 헤더 열 위치(anchor)
+    기준으로 열에 배정한 뒤, 열 단위로 외국어 모델 전환 여부를 정한다.
+    연속된 외국어 열은 한 번에 잘라 재인식해 호출 횟수를 줄인다.
+    (rows, 행별_외국어_모델_사용_여부) 튜플을 반환한다."""
+    header, body_rows = rows[0], rows[1:]
+    if not body_rows:
+        return rows, [False] * len(rows)
+
+    anchors = [w["xc"] for w in header]
+    row_cols = []  # body_rows와 같은 길이. 각 원소: {col_idx: [word, ...]}
+    for row in body_rows:
+        cols = {}
+        for w in row:
+            idx = min(range(len(anchors)), key=lambda i: abs(w["xc"] - anchors[i]))
+            cols.setdefault(idx, []).append(w)
+        row_cols.append(cols)
+
+    foreign_cols = {
+        col_idx for col_idx in range(len(anchors))
+        if _column_is_foreign([w for cols in row_cols for w in cols.get(col_idx, [])])
+    }
+    if not foreign_cols:
+        return rows, [False] * len(rows)
+
+    col_runs, run = [], []
+    for col_idx in range(len(anchors)):
+        if col_idx in foreign_cols:
+            run.append(col_idx)
+        elif run:
+            col_runs.append(run)
+            run = []
+    if run:
+        col_runs.append(run)
+
+    new_body_rows, used_foreign_flags = [], []
+    for cols in row_cols:
+        used_foreign = False
+        new_row = [w for idx, words in cols.items() if idx not in foreign_cols for w in words]
+        for col_run in col_runs:
+            run_words = [w for idx in col_run for w in cols.get(idx, [])]
+            if not run_words:
+                continue
+            run_words, ok = _reocr_foreign_block(img, run_words, ocr_version, force=True)
+            used_foreign = used_foreign or ok
+            new_row.extend(run_words)
+        # 유지한 열과 재인식한 열을 각각 따로 모았을 뿐이라 왼쪽→오른쪽
+        # 순서가 깨져 있다 — _row_to_line은 입력 순서를 그대로 믿으므로
+        # 여기서 x좌표 기준으로 다시 정렬해줘야 한다.
+        new_row.sort(key=lambda w: w["x1"])
+        new_body_rows.append(new_row)
+        used_foreign_flags.append(used_foreign)
+
+    return [header] + new_body_rows, [False] + used_foreign_flags
+
+
 # ── 5. 파이프라인 ─────────────────────────────────────────────────────────────
 
 def run_ocr(image_path, ocr_version=None):
@@ -466,21 +632,38 @@ def run_ocr(image_path, ocr_version=None):
 
     all_words = _dedup(all_words)
     lines = []
+    line_is_korean_engine = []
     for block in _split_into_blocks(all_words):
         block = _reocr_small_text_block(img, block, engine)
         rows = _group_rows(block)
-        table_lines = _reconstruct_table_rows(rows)
-        if table_lines is not None:
-            lines.extend(table_lines)
+        # 표로 보이는 구조(헤더 3~6열 + 데이터 행 3개 이상)면 헤더 열
+        # 위치 기준으로 열 단위 판정(_reocr_foreign_columns)을 쓴다 —
+        # 같은 행 안에 숫자/모델명 열과 한글 열("형태" 등)이 섞여 있어도
+        # 한글 열은 건드리지 않는다. 표가 아니면(문단, 2열 라벨:값 목록
+        # 등) 행 단위 판정으로 충분하다.
+        looks_like_table = len(rows) >= 3 and 3 <= len(rows[0]) <= 6
+        if looks_like_table and is_korean:
+            rows, used_foreign_flags = _reocr_foreign_columns(img, rows, ocr_version)
         else:
+            new_rows, used_foreign_flags = [], []
             for row in rows:
-                lines.append(_row_to_line(row))
+                row, used_foreign = _reocr_foreign_block(img, row, ocr_version)
+                new_rows.append(row)
+                used_foreign_flags.append(used_foreign)
+            rows = new_rows
+        table_lines = _reconstruct_table_rows(rows)
+        new_lines = table_lines if table_lines is not None else [_row_to_line(row) for row in rows]
+        lines.extend(new_lines)
+        line_is_korean_engine.extend([is_korean and not uf for uf in used_foreign_flags])
     # 행 재조합(탭/공백 구분)이 끝난 뒤에 띄어쓰기를 복원한다. 재조합 전에
     # 하면 문자 수가 바뀌어 열 간격 판단(_row_to_line의 char_w 계산)이
     # 틀어질 수 있어, 최종 줄 단위로만 적용한다. kiwipiepy는 한국어
-    # 형태소 분석기라 외국어 모델(PP-OCRv5) 결과에는 적용하지 않는다.
-    if is_korean:
-        lines = [correct_spacing(line) for line in lines]
+    # 형태소 분석기라 외국어 모델(PP-OCRv5)로 인식한 줄(페이지 전체든
+    # _reocr_foreign_block으로 블록만 대체됐든)에는 적용하지 않는다.
+    lines = [
+        correct_spacing(line) if is_korean_line else line
+        for line, is_korean_line in zip(lines, line_is_korean_engine)
+    ]
     return "\n".join(lines)
 
 
@@ -557,15 +740,22 @@ def _write_context_with_ocr(crawl_prefix, ocr_product_dir, ocr_text):
     더해 ocr/output/ 쪽에 저장한다. extract/가 LLM 프롬프트로 그대로
     넘길 수 있는 통합 마크다운을 만들기 위함이다. crawl/output/의 원본
     context.md는 건드리지 않는다 — 각 단계는 자기 출력 폴더에만 쓰고
-    상위 단계의 폴더는 읽기만 한다는 규칙을 지킨다."""
+    상위 단계의 폴더는 읽기만 한다는 규칙을 지킨다.
+
+    ocr_text가 없어도(OCR 대상 이미지가 아예 없거나 전부 인식 실패)
+    이 함수는 항상 호출된다 — crawl의 DOM 표/텍스트만으로도 extract가
+    읽을 파일이 있어야 한다. OCR 섹션은 실제 텍스트가 있을 때만 붙인다."""
     src_path = os.path.join(crawl_prefix, "context.md")
     base_md = ""
     if os.path.exists(src_path):
         with open(src_path, encoding="utf-8") as f:
             base_md = f.read().rstrip()
 
-    section = f"## OCR 추출 텍스트\n\n```\n{ocr_text}\n```\n"
-    merged = f"{base_md}\n\n{section}" if base_md else f"# OCR 추출 텍스트\n\n{section}"
+    if ocr_text.strip():
+        section = f"## OCR 추출 텍스트\n\n```\n{ocr_text}\n```\n"
+        merged = f"{base_md}\n\n{section}" if base_md else f"# OCR 추출 텍스트\n\n{section}"
+    else:
+        merged = base_md
 
     with open(os.path.join(ocr_product_dir, "context.md"), "w", encoding="utf-8") as f:
         f.write(merged)
@@ -584,11 +774,10 @@ def ocr_capture_dir(crawl_dir, ocr_dir=None):
     print("=" * 50)
 
     images = find_ocr_targets(crawl_dir)
-    if not images:
-        print(f"❌ '{crawl_dir}'에 OCR 대상 이미지가 없습니다. main.py를 먼저 실행하세요.")
-        return {}
-
-    print(f"총 {len(images)}개 이미지 발견\n")
+    if images:
+        print(f"총 {len(images)}개 이미지 발견\n")
+    else:
+        print("OCR 대상 이미지가 없습니다 — crawl의 DOM 표/텍스트만으로 진행합니다.\n")
 
     # 상품 폴더별로 그룹핑 — 같은 상품의 이미지들을 한 프로세스에서 처리한다.
     by_product = {}
@@ -624,18 +813,23 @@ def ocr_capture_dir(crawl_dir, ocr_dir=None):
                     text = f.read().strip()
                 if text:
                     chunks.append(text)
-        if chunks:
-            combined_by_crawl_prefix[crawl_prefix] = chunks
+        combined_by_crawl_prefix[crawl_prefix] = chunks
 
-    # 상품별로 OCR 텍스트를 합쳐 ocr_dir 내 대응 폴더에 저장한다.
+    # 상품별로 OCR 텍스트를 합쳐 ocr_dir 내 대응 폴더에 저장한다. crawl이
+    # 만든 상품 폴더 전체를 기준으로 돈다 — 이미지가 아예 없거나(크롤
+    # 실패 등) OCR이 전부 실패해 텍스트가 없는 상품도 DOM 표/텍스트만
+    # 으로 context.md를 만들어야 extract가 읽을 파일이 있다.
     # extract_info.py가 이 파일을 읽는다.
-    for crawl_prefix, chunks in combined_by_crawl_prefix.items():
+    product_dirs = sorted(d for d in glob.glob(os.path.join(crawl_dir, "*")) if os.path.isdir(d))
+    for crawl_prefix in product_dirs:
+        chunks = combined_by_crawl_prefix.get(crawl_prefix, [])
         rel = os.path.relpath(crawl_prefix, crawl_dir)
         ocr_product_dir = os.path.join(ocr_dir, rel)
         os.makedirs(ocr_product_dir, exist_ok=True)
         ocr_text = "\n\n".join(chunks)
-        with open(os.path.join(ocr_product_dir, "ocr_combined.txt"), "w", encoding="utf-8") as f:
-            f.write(ocr_text)
+        if chunks:
+            with open(os.path.join(ocr_product_dir, "ocr_combined.txt"), "w", encoding="utf-8") as f:
+                f.write(ocr_text)
         _write_context_with_ocr(crawl_prefix, ocr_product_dir, ocr_text)
 
     total_elapsed = time.perf_counter() - pipeline_start
