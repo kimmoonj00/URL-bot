@@ -38,14 +38,13 @@ LABEL_VALUE_TAB = re.compile(r"^\s*([^\t]{1,20})\t+(\S.{0,120})\s*$")
 SPEC_VALUE_PATTERNS = [re.compile(p) for p in config.SPEC_VALUE_PATTERNS]
 
 
-# ── LLM 추출 (Ollama / Qwen) ─────────────────────────────────────────────────
+# ── LLM 추출 (GPT) ───────────────────────────────────────────────────────────
 
-class QwenExtractionError(Exception):
+class ExtractionError(Exception):
     pass
 
 
 # few-shot 예시: (user_input, assistant_output) 쌍
-# 규칙만으로 Qwen이 놓치는 두 가지 패턴을 예시로 직접 보여준다.
 FEW_SHOT_EXAMPLES = [
     # 예시 1: 다중 variant 테이블 → 모델별 규격 분리 + 라벨 유지
     (
@@ -131,35 +130,10 @@ def _truncate(text, limit=None):
     return text or "(내용 없음)"
 
 
-def _extract_json_object(raw_text):
-    """모델이 JSON 앞뒤에 잡담을 붙이거나 잘린 경우를 모두 처리한다."""
-    from json_repair import repair_json
-
-    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-    if match:
-        raw_json = match.group(0)
-        try:
-            return json.loads(raw_json)
-        except json.JSONDecodeError:
-            return json.loads(repair_json(raw_json))
-
-    # JSON이 잘려 닫는 }가 없는 경우 → repair_json으로 복구 시도
-    stripped = raw_text.strip()
-    if stripped.startswith("{"):
-        repaired = repair_json(stripped)
-        if repaired:
-            return json.loads(repaired)
-
-    raise QwenExtractionError(f"응답에서 JSON을 찾지 못함: {raw_text[:200]!r}")
-
-
-_OLLAMA_CONNECT_RETRIES = 3
-_OLLAMA_CONNECT_WAIT = 8  # 초
-
 def call_gpt(messages):
     from openai import OpenAI
     if not config.OPENAI_API_KEY:
-        raise QwenExtractionError("OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
+        raise ExtractionError("OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
     client = OpenAI(api_key=config.OPENAI_API_KEY)
     response = client.chat.completions.create(
         model=config.OPENAI_MODEL,
@@ -170,52 +144,8 @@ def call_gpt(messages):
     )
     content = response.choices[0].message.content
     if not content or not content.strip():
-        raise QwenExtractionError("GPT가 빈 응답을 반환함")
+        raise ExtractionError("GPT가 빈 응답을 반환함")
     return json.loads(content)
-
-
-def call_ollama(messages):
-    import requests
-
-    url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
-    payload = {
-        "model": config.OLLAMA_MODEL,
-        "messages": messages,
-        "format": "json",
-        "stream": False,
-        "think": False,
-        "keep_alive": config.OLLAMA_KEEP_ALIVE,
-        "options": {
-            "temperature": 0,
-            "num_predict": config.OLLAMA_NUM_PREDICT,
-            "num_ctx": 12288,
-        },
-    }
-    for attempt in range(_OLLAMA_CONNECT_RETRIES):
-        try:
-            response = requests.post(url, json=payload, timeout=config.OLLAMA_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            break
-        except requests.exceptions.ConnectionError as error:
-            if attempt < _OLLAMA_CONNECT_RETRIES - 1:
-                print(f"   ⚠️  Ollama 연결 실패, {_OLLAMA_CONNECT_WAIT}초 후 재시도 ({attempt + 1}/{_OLLAMA_CONNECT_RETRIES - 1})...")
-                time.sleep(_OLLAMA_CONNECT_WAIT)
-                continue
-            raise QwenExtractionError(
-                f"Ollama({config.OLLAMA_BASE_URL})에 연결할 수 없습니다. "
-                f"'ollama serve'가 실행 중인지, 모델이 'ollama pull {config.OLLAMA_MODEL}'로 "
-                f"받아져 있는지 확인하세요. 원본 오류: {error}"
-            ) from error
-        except requests.exceptions.Timeout as error:
-            raise QwenExtractionError(f"Ollama 응답 시간 초과({config.OLLAMA_TIMEOUT_SECONDS}초): {error}") from error
-        except requests.exceptions.HTTPError as error:
-            raise QwenExtractionError(f"Ollama 호출 실패({response.status_code}): {response.text[:300]}") from error
-
-    body = response.json()
-    content = body.get("message", {}).get("content", "")
-    if not content.strip():
-        raise QwenExtractionError(f"Ollama가 빈 응답을 반환함: {body}")
-    return _extract_json_object(content)
 
 
 def extract_with_gpt(url, title, context_text, ocr_text):
@@ -233,7 +163,7 @@ def extract_with_gpt(url, title, context_text, ocr_text):
     result = call_gpt(messages)
 
     if not isinstance(result, dict):
-        raise QwenExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
+        raise ExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
 
     def as_str_list(value):
         if value is None:
@@ -260,66 +190,6 @@ def extract_with_gpt(url, title, context_text, ocr_text):
         variants = [{"model": m, "규격": specs} for m in models]
 
     return {"product_name": product_name, "variants": variants}
-
-
-def extract_with_qwen(url, title, context_text, ocr_text):
-    user_prompt = USER_PROMPT_TEMPLATE.format(
-        url=url,
-        title=title or "(제목 없음)",
-        context=_truncate(context_text),
-        ocr=_truncate(ocr_text),
-    )
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for ex_user, ex_assistant in FEW_SHOT_EXAMPLES:
-        messages.append({"role": "user", "content": ex_user})
-        messages.append({"role": "assistant", "content": ex_assistant})
-    messages.append({"role": "user", "content": user_prompt})
-    result = call_ollama(messages)
-
-    if not isinstance(result, dict):
-        raise QwenExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
-
-    def as_str_list(value):
-        if value is None:
-            return []
-        if isinstance(value, str):
-            items = [value]
-        elif isinstance(value, list):
-            items = [str(v) for v in value]
-        else:
-            items = [str(value)]
-        cleaned = []
-        seen = set()
-        for item in items:
-            item = item.strip()
-            if not item or item in seen:
-                continue
-            seen.add(item)
-            cleaned.append(item[:150])
-        return cleaned
-
-    product_name = str(result.get("product_name", "")).strip()[:200]
-
-    # 새 스키마: variants 배열
-    variants_raw = result.get("variants")
-    if isinstance(variants_raw, list) and variants_raw:
-        variants = []
-        for v in variants_raw:
-            if not isinstance(v, dict):
-                continue
-            model = str(v.get("model", "")).strip()[:200]
-            specs = as_str_list(v.get("규격"))
-            variants.append({"model": model, "규격": specs})
-    else:
-        # 구버전 응답(model + 규격 flat) 호환 처리
-        models = as_str_list(result.get("model")) or [""]
-        specs = as_str_list(result.get("규격"))
-        variants = [{"model": m, "규격": specs} for m in models]
-
-    return {
-        "product_name": product_name,
-        "variants": variants,
-    }
 
 
 # ── 규칙 기반 추출 ────────────────────────────────────────────────────────────
@@ -524,29 +394,7 @@ def build_record_with_gpt(url, metadata, context_text, ocr_text):
     print(f"   🤖 GPT 추출: {url} ({elapsed:.1f}초)")
 
     if not result["product_name"] and not result["variants"]:
-        raise QwenExtractionError(f"GPT가 빈 결과를 반환함: {url}")
-
-    return {
-        "URL": url,
-        "상태": "captured",
-        "상품명": result["product_name"],
-        "variants": result["variants"],
-    }
-
-
-def build_record_with_qwen(url, metadata, context_text, ocr_text):
-    started = time.perf_counter()
-    result = extract_with_qwen(
-        url=url,
-        title=metadata.get("title", ""),
-        context_text=context_text,
-        ocr_text=ocr_text,
-    )
-    elapsed = time.perf_counter() - started
-    print(f"   🤖 Qwen 추출: {url} ({elapsed:.1f}초)")
-
-    if not result["product_name"] and not result["variants"]:
-        raise QwenExtractionError(f"Qwen이 빈 결과를 반환함: {url}")
+        raise ExtractionError(f"GPT가 빈 결과를 반환함: {url}")
 
     return {
         "URL": url,
@@ -592,11 +440,6 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
             return build_record_with_gpt(url, metadata, context_text, ocr_text)
         except Exception as error:
             print(f"   ⚠️  GPT 추출 실패({error}) → 규칙 기반으로 대체합니다: {url}")
-    elif config.EXTRACTION_ENGINE == "qwen":
-        try:
-            return build_record_with_qwen(url, metadata, context_text, ocr_text)
-        except Exception as error:
-            print(f"   ⚠️  Qwen 추출 실패({error}) → 규칙 기반으로 대체합니다: {url}")
 
     # rules-based 폴백: context_text를 dom_text로 사용 (product_dom은 context 안에 포함)
     started = time.perf_counter()

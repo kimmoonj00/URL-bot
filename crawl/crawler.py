@@ -620,7 +620,7 @@ def capture_one(page, url, index, total, output_dir):
     return "captured"
 
 
-def run_capture_bot(run_ocr_and_extract=True, urls=None):
+def run_capture_bot(run_ocr_and_extract=True, urls=None, output_dir=None):
     source = urls if urls is not None else TARGET_URLS
     urls = [
         url for url in source
@@ -631,11 +631,12 @@ def run_capture_bot(run_ocr_and_extract=True, urls=None):
             print("캡처할 URL이 없습니다. 제외 도메인 목록을 확인하세요.")
         else:
             print("캡처할 URL이 없습니다. urls.txt를 확인하거나 터미널에서 URL을 직접 입력하세요.")
-        return
+        return None
 
-    output_dir = os.path.join(
-        _ROOT, "crawl", "output", "capture_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-    )
+    if output_dir is None:
+        output_dir = os.path.join(
+            _ROOT, "crawl", "output", "capture_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        )
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
     print(f"캡처 대상 {len(urls)}개 / 저장 위치: {output_dir}")
@@ -697,6 +698,7 @@ def run_capture_bot(run_ocr_and_extract=True, urls=None):
 
     total_elapsed = time.perf_counter() - pipeline_started
     print(f"⏱️  전체 파이프라인 소요 시간: {total_elapsed:.1f}초")
+    return output_dir
 
 
 if __name__ == "__main__":

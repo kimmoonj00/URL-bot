@@ -2,10 +2,12 @@ import asyncio
 import json
 import os
 import queue
+import shutil
 import sys
 import threading
+import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,6 +22,58 @@ app = FastAPI()
 
 # 메모리 내 job 저장소 (서버 재시작 시 초기화됨)
 jobs: dict = {}
+
+JOB_TTL_HOURS = 1
+_CLEANUP_INTERVAL = 600  # 10분마다 체크
+
+
+def _delete_job_files(job: dict):
+    for key in ("output_dir", "ocr_dir"):
+        d = job.get(key)
+        if d and os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)
+    if job.get("output_dir"):
+        run_name = os.path.basename(job["output_dir"])
+        extract_dir = os.path.join(_ROOT, "extract", "output", run_name)
+        if os.path.isdir(extract_dir):
+            shutil.rmtree(extract_dir, ignore_errors=True)
+
+
+def _cleanup_loop():
+    while True:
+        time.sleep(_CLEANUP_INTERVAL)
+        cutoff = datetime.now() - timedelta(hours=JOB_TTL_HOURS)
+        expired = [
+            jid for jid, j in list(jobs.items())
+            if j["status"] in ("done", "error")
+            and datetime.fromisoformat(j["created_at"]) < cutoff
+        ]
+        for jid in expired:
+            job = jobs.pop(jid, None)
+            if job:
+                _delete_job_files(job)
+        if expired:
+            print(f"[cleanup] {len(expired)}개 job 만료 삭제 (TTL {JOB_TTL_HOURS}h)")
+
+
+def _cleanup_gui_dirs():
+    """gui_* 디렉토리만 정리한다. capture_* (main.py 결과)는 절대 건드리지 않는다."""
+    for base in (
+        os.path.join(_ROOT, "crawl", "output"),
+        os.path.join(_ROOT, "ocr", "output"),
+        os.path.join(_ROOT, "extract", "output"),
+    ):
+        if not os.path.isdir(base):
+            continue
+        for name in os.listdir(base):
+            if name.startswith("gui_"):
+                shutil.rmtree(os.path.join(base, name), ignore_errors=True)
+
+
+@app.on_event("startup")
+async def start_cleanup():
+    _cleanup_gui_dirs()  # 이전 세션 gui_* 파일 정리
+    threading.Thread(target=_cleanup_loop, daemon=True).start()
 
 
 class RunRequest(BaseModel):
@@ -65,14 +119,16 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
     try:
         from crawl.crawler import run_capture_bot
 
-        output_dir = run_capture_bot(run_ocr_and_extract=False, urls=urls)
+        # GUI 실행은 gui_날짜/ 접두사 — main.py의 capture_날짜/와 구별해 TTL 정리 대상임
+        gui_run_name = "gui_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join(_ROOT, "crawl", "output", gui_run_name)
+        run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
         job["output_dir"] = output_dir
 
         if run_ocr and output_dir:
             from ocr import paddle_ocr
 
-            run_name = os.path.basename(output_dir)
-            ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name)
+            ocr_dir = os.path.join(_ROOT, "ocr", "output", gui_run_name)
             paddle_ocr.ocr_capture_dir(output_dir, ocr_dir)
             job["ocr_dir"] = ocr_dir
 
