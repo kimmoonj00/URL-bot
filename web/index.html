@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>URL Bot</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+
+    <header>
+      <h1>URL Bot</h1>
+      <p>URL을 입력하고 크롤링을 시작하세요</p>
+    </header>
+
+    <main>
+
+      <!-- Step 1: 크롤링 -->
+      <section class="card" id="crawl-section">
+        <div class="section-header">
+          <span class="step-badge">1</span>
+          <h2>크롤링</h2>
+        </div>
+
+        <div class="form-group">
+          <label for="url-input">
+            URL
+            <span class="hint">한 줄에 하나씩 · Ctrl+Enter로 실행</span>
+          </label>
+          <textarea
+            id="url-input"
+            placeholder="https://example.com/product&#10;https://another.com/item"
+            spellcheck="false"
+          ></textarea>
+        </div>
+
+        <div class="form-row">
+          <label class="toggle-label" for="ocr-toggle">
+            <input type="checkbox" id="ocr-toggle">
+            <span class="toggle"></span>
+            이미지 OCR 포함
+            <span class="hint">시간이 더 걸릴 수 있습니다</span>
+          </label>
+          <button id="run-btn" class="btn btn-primary">실행</button>
+        </div>
+      </section>
+
+      <!-- 진행 로그 -->
+      <section class="card" id="log-section" hidden>
+        <div class="section-header">
+          <span id="log-status" class="status-badge running">실행 중</span>
+          <h2>진행 로그</h2>
+          <button id="clear-log-btn" class="btn-icon" title="로그 지우기">✕</button>
+        </div>
+        <div id="log-output" class="log-output" aria-live="polite"></div>
+        <div id="view-result-row" class="view-result-row" hidden>
+          <button id="view-result-btn" class="btn btn-outline">결과 보기 ▾</button>
+        </div>
+      </section>
+
+      <!-- 결과 뷰어 -->
+      <section class="card" id="result-section" hidden>
+        <div class="section-header">
+          <h2>크롤링 결과</h2>
+          <button id="close-result-btn" class="btn-icon" title="닫기">✕</button>
+        </div>
+        <div id="result-content"></div>
+      </section>
+
+      <!-- Step 2: 데이터 추출 (stub) -->
+      <section class="card" id="extract-section">
+        <div class="section-header">
+          <span class="step-badge step-badge--muted">2</span>
+          <h2>데이터 추출</h2>
+          <span class="badge-soon">준비 중</span>
+        </div>
+        <p class="description">
+          GPT-4o-mini로 상품명, 모델번호, 규격을 구조화합니다.<br>
+          API 키 연동 후 사용할 수 있습니다.
+        </p>
+        <button id="extract-btn" class="btn btn-secondary" disabled>
+          Extract 실행
+        </button>
+      </section>
+
+      <!-- 실행 기록 -->
+      <section class="card" id="history-section">
+        <h2>실행 기록</h2>
+        <div id="job-list">
+          <p class="empty-state">아직 실행 기록이 없습니다</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
