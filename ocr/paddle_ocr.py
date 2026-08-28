@@ -9,7 +9,6 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import glob
-import re
 import subprocess
 import time
 
@@ -40,65 +39,36 @@ os.environ.setdefault("FLAGS_use_mkldnn", "0")  # oneDNN Windows 호환성 버�
 # 예전 실행기로 되돌려 이 변환 경로 자체를 타지 않게 한다.
 os.environ.setdefault("FLAGS_enable_pir_in_executor", "0")
 
-# paddlex는 site-packages 내부에 캐시해 둔 폰트 파일(PingFang-SC-Regular.ttf 등,
-# 결과 시각화용이라 우리 텍스트 인식 결과와는 무관)이 없으면 import 시점에
-# 곧바로 원격 다운로드를 시도한다. paddlex를 재설치할 때마다 이 캐시가
-# 지워지는데, 이 네트워크는 그 다운로드 URL에서 SSL 인증서 검증에 실패해
-# (자체 서명 인증서가 체인에 포함됨) import 자체가 죽는다. 로컬 폰트 파일을
-# 지정해 다운로드 시도 자체를 건너뛰게 한다.
-if not os.environ.get("PADDLE_PDX_LOCAL_FONT_FILE_PATH"):
-    _local_font = r"C:\Windows\Fonts\malgun.ttf"
-    if os.path.isfile(_local_font):
-        os.environ["PADDLE_PDX_LOCAL_FONT_FILE_PATH"] = _local_font
-
-# ocr_version별로 엔진을 따로 캐시한다 — 상품 페이지 언어에 따라
-# PP-OCRv3(한국어 전용)와 PP-OCRv5(범용 다국어)를 다르게 골라 쓰기
-# 때문이다 (detect_product_lang 참고).
-_OCR_ENGINES = {}
+_OCR_ENGINE = None
 
 
-def get_engine(ocr_version=None):
-    """PaddleOCR 엔진은 로딩이 무거우니 ocr_version별 지연 초기화 +
-    캐시한다. 설치된 paddleocr/paddlex 버전에 따라 일부 파라미터가
-    없을 수 있어 TypeError가 나면 문제되는 파라미터를 하나씩 제거하며
-    재시도한다."""
-    ocr_version = ocr_version or config.OCR_VERSION
-    if ocr_version in _OCR_ENGINES:
-        return _OCR_ENGINES[ocr_version]
-
-    from paddleocr import PaddleOCR
-
-    kwargs = dict(
+def _base_engine_kwargs():
+    return dict(
         use_textline_orientation=config.OCR_USE_TEXTLINE_ORIENTATION,
         # 스캔 문서용 전처리(카메라로 비스듬히 찍은 종이를 펴주는 기능). 웹페이지
         # 스크린샷은 이미 똑바르므로 꺼둔다. Windows oneDNN 환경에서 이 모델들이
         # "ConvertPirAttribute2RuntimeAttribute" 오류를 내는 버그도 이걸로 회피된다.
         use_doc_orientation_classify=config.OCR_USE_DOC_ORIENTATION_CLASSIFY,
         use_doc_unwarping=config.OCR_USE_DOC_UNWARPING,
-        lang=config.OCR_LANG,
-        # ocr_version을 아예 안 주면 paddleocr==3.0.0이 내부 기본 선택
-        # 로직에서 응답 없이 멈추는 걸 실측했다 — 반드시 명시해야 한다.
-        # 값 자체(PP-OCRv3 vs PP-OCRv5) 선택 기준은 ocr/config.py의
-        # OCR_VERSION 주석과 detect_product_lang 참고.
-        ocr_version=ocr_version,
         text_det_limit_side_len=config.OCR_TEXT_DET_LIMIT_SIDE_LEN,
         text_det_limit_type=config.OCR_TEXT_DET_LIMIT_TYPE,
         text_recognition_batch_size=config.OCR_TEXT_RECOGNITION_BATCH_SIZE,
     )
-    if config.OCR_TEXT_DETECTION_MODEL_NAME:
-        kwargs["text_detection_model_name"] = config.OCR_TEXT_DETECTION_MODEL_NAME
-    if config.OCR_ENABLE_MKLDNN is not None:
-        kwargs["enable_mkldnn"] = config.OCR_ENABLE_MKLDNN
 
+
+def _build_engine(kwargs):
+    """설치된 paddleocr/paddlex 버전에 따라 일부 파라미터가 없을 수 있어
+    TypeError가 나면 문제되는 파라미터를 하나씩 제거하며 재시도한다."""
+    from paddleocr import PaddleOCR
+
+    kwargs = dict(kwargs)
     while True:
         try:
-            engine = PaddleOCR(**kwargs)
-            _OCR_ENGINES[ocr_version] = engine
-            return engine
+            return PaddleOCR(**kwargs)
         except TypeError as error:
-            # 설치된 버전이 지원하지 않는 파라미터가 있으면 하나씩 제거하고 재시도
             removed = False
-            for key in ("enable_mkldnn", "text_detection_model_name", "text_recognition_batch_size"):
+            for key in ("enable_mkldnn", "text_detection_model_name",
+                        "text_recognition_model_name", "text_recognition_batch_size"):
                 if key in kwargs and key in str(error):
                     print(f"  (참고) 설치된 paddleocr 버전이 '{key}' 파라미터를 지원하지 않아 제외하고 재시도합니다.")
                     del kwargs[key]
@@ -106,6 +76,41 @@ def get_engine(ocr_version=None):
                     break
             if not removed:
                 raise
+
+
+def get_engine():
+    """PaddleOCR 엔진은 로딩이 무거우니 지연 초기화 + 1회만 생성한다.
+
+    검출/인식 모델을 명시적으로(PP-OCRv5 mobile 조합) 고정해 먼저 시도한다.
+    2026-08-23 실측(같은 타일 기준): PP-OCRv3 대비 예측 시간은 5.5초→7.6초로
+    소폭 늘지만 오독("2.4GHZ"→"24GHZz" 등)이 사라지고 신뢰도가 0.94~1.00으로
+    오른다. paddleocr 기본값(버전 미지정 시 서버형 검출 모델)은 66초로 12배
+    느려 쓰지 않는다. 이 조합 초기화가 실패하면(모델 다운로드 불가 등)
+    과거부터 검증된 lang 기반 자동 선택(PP-OCRv3)으로 자동 폴백한다."""
+    global _OCR_ENGINE
+    if _OCR_ENGINE is not None:
+        return _OCR_ENGINE
+
+    kwargs = _base_engine_kwargs()
+    if config.OCR_ENABLE_MKLDNN is not None:
+        kwargs["enable_mkldnn"] = config.OCR_ENABLE_MKLDNN
+
+    preferred = dict(kwargs, lang=config.OCR_LANG)
+    if config.OCR_TEXT_DETECTION_MODEL_NAME:
+        preferred["text_detection_model_name"] = config.OCR_TEXT_DETECTION_MODEL_NAME
+    if config.OCR_TEXT_RECOGNITION_MODEL_NAME:
+        preferred["text_recognition_model_name"] = config.OCR_TEXT_RECOGNITION_MODEL_NAME
+
+    try:
+        _OCR_ENGINE = _build_engine(preferred)
+        return _OCR_ENGINE
+    except Exception as error:
+        print(f"  ⚠️  선호 OCR 모델 조합 초기화 실패({error}), "
+              f"안전망 조합({config.OCR_FALLBACK_OCR_VERSION})으로 재시도합니다.")
+
+    fallback = dict(kwargs, lang=config.OCR_LANG, ocr_version=config.OCR_FALLBACK_OCR_VERSION)
+    _OCR_ENGINE = _build_engine(fallback)
+    return _OCR_ENGINE
 
 
 def find_latest_capture_dir(base=None):
@@ -142,56 +147,19 @@ def product_prefix_for(image_path, capture_dir):
     return parent_dir
 
 
-def image_output_path(image_path, crawl_dir, ocr_dir):
-    """crawl_dir 내 이미지 경로를 ocr_dir 내 텍스트 경로로 변환한다."""
+def image_cache_path(image_path, crawl_dir):
+    """crawl_dir 내 이미지 경로를 이미지별 OCR 캐시 텍스트 경로로 변환한다.
+
+    ocr/output/<run>/<product>/에는 상품당 ocr_asset.txt + product.md
+    두 파일만 남기기로 했으므로(2026-08-23), 이미지별 중간 결과는 최종
+    출력이 아닌 config.CACHE_DIR(ocr/cache/, git 제외) 아래에 보관한다.
+    재실행 시 이미지 단위 캐시 재사용(속도)은 그대로 유지된다."""
+    run_name = os.path.basename(os.path.abspath(crawl_dir))
     crawl_product_dir = product_prefix_for(image_path, crawl_dir)
     rel_product = os.path.relpath(crawl_product_dir, crawl_dir)
-    out_dir = os.path.join(ocr_dir, rel_product, "ocr_text")
+    out_dir = os.path.join(config.CACHE_DIR, run_name, rel_product)
     relative = os.path.relpath(image_path, crawl_product_dir)
     return os.path.join(out_dir, os.path.splitext(relative)[0] + ".txt")
-
-
-_HANGUL_RE = re.compile(r"[가-힣]")
-_LATIN_RE = re.compile(r"[A-Za-z]")
-_DIGIT_RE = re.compile(r"[0-9]")
-_product_lang_cache = {}
-
-
-def detect_product_lang(product_dir):
-    """상품 폴더의 context.md(crawl/이 이미 만들어 둔 DOM 표+텍스트
-    마크다운)를 보고 이 상품 페이지에 쓸 ocr_version을 고른다. 결과는
-    상품 폴더 단위로 캐시한다 (같은 상품의 여러 이미지가 매번 파일을
-    다시 읽지 않도록).
-
-    마크다운 제목 줄("## 규격 테이블" 등)과 "- URL:" 줄은 페이지 실제
-    언어와 무관하게 crawl/이 항상 한국어로 붙이는 고정 템플릿이라 셈에서
-    뺀다 — 안 빼면 완전한 영문 페이지(지멘스 등)도 이 템플릿 글자들
-    때문에 한글이 0개가 아니게 돼 항상 한국어로 잘못 판정된다(실측)."""
-    if product_dir in _product_lang_cache:
-        return _product_lang_cache[product_dir]
-
-    ocr_version = config.OCR_VERSION  # 기본값(한국어). context.md가 없거나 판단이 애매하면 이걸 쓴다.
-    context_path = os.path.join(product_dir, "context.md")
-    if os.path.exists(context_path):
-        with open(context_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        text = "".join(
-            line for line in lines
-            if not line.lstrip().startswith("#") and not line.lstrip().startswith("- URL:")
-        )
-        hangul_count = len(_HANGUL_RE.findall(text))
-        latin_count = len(_LATIN_RE.findall(text))
-        hangul_ratio = hangul_count / max(hangul_count + latin_count, 1)
-        # 한글 비율이 낮고(템플릿 잔여 글자 정도) 라틴 문자가 확실히 많을
-        # 때만 외국어로 전환한다. 한글 비중이 있으면(한국어 UI + 영문
-        # 모델명 등 흔한 패턴) 한국어 모델을 유지한다 — 자연스러운 한국어
-        # 문장에는 그쪽이 훨씬 정확하다(ocr/config.py 주석 참고).
-        if (hangul_ratio < config.OCR_LANG_DETECT_MAX_HANGUL_RATIO and
-                latin_count >= config.OCR_LANG_DETECT_MIN_LATIN_CHARS):
-            ocr_version = config.OCR_FOREIGN_LANG_OCR_VERSION
-
-    _product_lang_cache[product_dir] = ocr_version
-    return ocr_version
 
 
 # ── 1. 단어별 위치 추출 ───────────────────────────────────────────────────────
@@ -246,64 +214,67 @@ def _dedup(words: list) -> list:
     return kept
 
 
-# ── 2.5. x축 큰 간격으로 좌우 블록 분리 ──────────────────────────────────────
-# 실측: "왼쪽엔 제품 카드, 오른쪽엔 표"처럼 서로 다른 콘텐츠가 나란히
-# 배치된 레이아웃(한국 이커머스에서 흔함)에서, 다음 단계인 y좌표 기반
-# 행 그룹핑이 세로 위치가 겹치는 두 블록의 텍스트를 한 줄로 섞어버리는
-# 걸 확인했다(나비엠알오 스펙표 예시). 행 그룹핑 전에 이미지 전체에서
-# 거의 비어 있는 세로 띠(진짜 컬럼 경계)를 찾아 블록을 먼저 나누고,
-# 블록마다 따로 행을 재조합한 뒤 왼쪽→오른쪽 순서로 이어 붙인다.
+# ── 2.5. 다열(multi-column) 레이아웃 분리 ────────────────────────────────────
 
-def _split_into_blocks(words: list) -> list:
-    if not words:
+def _column_split_x(words):
+    """words 전체의 x축 상에서 서로 다른 열을 가르는 빈 구간이 있으면 그
+    경계 x좌표를 반환한다. 없으면 None. (예: 왼쪽 캡션 영역 vs 오른쪽 표)"""
+    if len(words) < 4:
+        return None
+
+    intervals = sorted((w["x1"], w["x2"]) for w in words)
+    merged = [list(intervals[0])]
+    for x1, x2 in intervals[1:]:
+        if x1 <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], x2)
+        else:
+            merged.append([x1, x2])
+    if len(merged) < 2:
+        return None
+
+    total_span = merged[-1][1] - merged[0][0]
+    median_w = sorted(w["w"] for w in words)[len(words) // 2]
+
+    best_gap, best_width = None, 0
+    for i in range(len(merged) - 1):
+        gap_start, gap_end = merged[i][1], merged[i + 1][0]
+        width = gap_end - gap_start
+        if width > best_width:
+            best_gap, best_width = (gap_start, gap_end), width
+    if best_gap is None:
+        return None
+
+    # 문장 사이 자연스러운 공백과 구분: 평균 글자폭의 여러 배 + 전체 폭 대비
+    # 일정 비율 이상이어야 진짜 열 경계로 본다.
+    if best_width < max(median_w * 4, total_span * config.OCR_COLUMN_GAP_MIN_RATIO):
+        return None
+
+    split_x = (best_gap[0] + best_gap[1]) / 2
+    left = [w for w in words if w["xc"] < split_x]
+    right = [w for w in words if w["xc"] >= split_x]
+    if not left or not right:
+        return None
+
+    # 좌/우가 실제로 나란히 배치된 열인지: 세로 범위가 상당 부분 겹쳐야 한다
+    # (안 겹치면 그냥 위아래로 떨어진 별개 블록일 뿐, 열이 아니다).
+    ly1, ly2 = min(w["y1"] for w in left), max(w["y2"] for w in left)
+    ry1, ry2 = min(w["y1"] for w in right), max(w["y2"] for w in right)
+    overlap = max(0, min(ly2, ry2) - max(ly1, ry1))
+    if overlap < 0.4 * min(ly2 - ly1, ry2 - ry1):
+        return None
+
+    return split_x
+
+
+def _split_into_columns(words):
+    """words를 좌→우 순서의 열 단위 그룹으로 나눈다. 열 경계가 없으면
+    [words] 그대로 반환. 3열 이상도 대응하도록 재귀적으로 다시 나눠본다."""
+    split_x = _column_split_x(words)
+    if split_x is None:
         return [words]
-
-    avg_h = sum(w["h"] for w in words) / len(words)
-    min_x = min(w["x1"] for w in words)
-    max_x = max(w["x2"] for w in words)
-    width = max_x - min_x
-    if width <= 0 or avg_h <= 0:
-        return [words]
-
-    bin_size = max(1.0, avg_h / 4)
-    n_bins = int(width / bin_size) + 1
-    covered = [False] * n_bins
-
-    def bin_idx(x):
-        return min(n_bins - 1, max(0, int((x - min_x) / bin_size)))
-
-    for w in words:
-        for b in range(bin_idx(w["x1"]), bin_idx(w["x2"]) + 1):
-            covered[b] = True
-
-    # 한 블록 안의 정상적인 열/단어 간격보다 훨씬 큰 빈 구간만 블록
-    # 경계로 본다 (_row_to_line의 탭 판단 기준보다 더 큰 값).
-    gap_threshold_bins = max(1, int((avg_h * 4) / bin_size))
-
-    ranges, start, i = [], 0, 0
-    while i < n_bins:
-        if covered[i]:
-            i += 1
-            continue
-        j = i
-        while j < n_bins and not covered[j]:
-            j += 1
-        if j - i >= gap_threshold_bins:
-            ranges.append((start, i))
-            start = j
-        i = j
-    ranges.append((start, n_bins))
-
-    if len(ranges) <= 1:
-        return [words]
-
-    blocks = []
-    for lo, hi in ranges:
-        x_lo, x_hi = min_x + lo * bin_size, min_x + hi * bin_size
-        block_words = [w for w in words if x_lo <= w["xc"] < x_hi]
-        if block_words:
-            blocks.append(block_words)
-    return blocks if blocks else [words]
+    left = [w for w in words if w["xc"] < split_x]
+    right = [w for w in words if w["xc"] >= split_x]
+    return _split_into_columns(left) + _split_into_columns(right)
 
 
 # ── 3. y 좌표로 행 그룹핑 ────────────────────────────────────────────────────
@@ -344,281 +315,15 @@ def _row_to_line(row: list) -> str:
     return "".join(parts)
 
 
-# ── 4.5. 헤더 열 위치 기준 표 재조합 ──────────────────────────────────────────
-# _row_to_line은 "한 행 안에서 단어 사이 간격"만 보고 열을 나누는데, 표의
-# 두 열 사이 간격이 원래 좁게 인쇄돼 있으면(실측: 규격표에서 모델명과
-# 바로 붙어 나오는 규격값) 그 행 안에서는 간격 자체가 없어 못 나눈다.
-# 대신 표의 첫 행(헤더)에서 각 열이 실제로 어디 있는지(x중심좌표)를 먼저
-# 파악해두고, 모든 행의 단어를 "가장 가까운 열"에 배정하는 방식이면 그
-# 행의 로컬 간격과 무관하게 표 전체 구조를 따라간다.
-#
-# 다만 이 방식은 진짜 다열 표에서만 써야 한다 — 일반 문단이나 "라벨: 값"
-# 한 줄짜리 스펙 목록("라벨: 값" 2열)에도 적용하면 오히려 망가진다(실측:
-# 정상적인 라벨/값 탭 구분이 사라짐) — 2열짜리는 이미 _row_to_line의
-# 간격 기반 판단이 잘 처리하므로 여기서는 3열 이상만 다룬다. 조건:
-# (1) 데이터 행이 최소 3개는 있어야 하고(우연히 줄 2개인 문단 배제),
-# (2) 헤더 열 수가 3~6개(표 열 수로 그럴듯한 범위, 2열 제외)여야 하고,
-# (3) 모든 행에서 단어들이 왼쪽→오른쪽 순서대로 열 번호도 증가해야
-#     한다(표라면 당연한 성질). 하나라도 안 맞으면 표가 아니라고 보고
-#     None을 반환해 _row_to_line 방식으로 폴백한다.
-
-def _reconstruct_table_rows(rows: list):
-    if len(rows) < 3 or not (3 <= len(rows[0]) <= 6):
-        return None
-
-    anchors = [w["xc"] for w in rows[0]]
-    assigned_rows = []
-    broken = 0
-    for row in rows:
-        assignments = []
-        for w in row:
-            idx = min(range(len(anchors)), key=lambda i: abs(w["xc"] - anchors[i]))
-            assignments.append((idx, w))
-        col_order = [idx for idx, _ in assignments]
-        if col_order != sorted(col_order):
-            broken += 1
-        assigned_rows.append(assignments)
-
-    # 절반 넘게 순서가 역전되면 애초에 표가 아니라고 보고 통째로 폴백한다.
-    # 소수 행만 어긋난 경우(예: 일부 행을 다른 모델로 재인식해 좌표가
-    # 살짝 밀린 경우)는 그 행만 간격 기반으로 대체하고 나머지 멀쩡한
-    # 행들의 열 구조는 그대로 살린다 — 안 그러면 행 하나 때문에 표
-    # 전체가 구조를 잃는다(실측: 나비엠알오 표에서 재인식한 행 일부의
-    # 좌표가 어긋나 전체가 깨짐).
-    if broken > len(rows) / 2:
-        return None
-
-    lines = []
-    for row, assignments in zip(rows, assigned_rows):
-        col_order = [idx for idx, _ in assignments]
-        if col_order != sorted(col_order):
-            lines.append(_row_to_line(row))
-            continue
-        columns = [[] for _ in anchors]
-        for idx, w in assignments:
-            columns[idx].append(w)
-        cells = []
-        for col_words in columns:
-            col_words.sort(key=lambda w: w["x1"])
-            cells.append(" ".join(w["text"] for w in col_words))
-        lines.append("\t".join(cells))
-    return lines
-
-
-# ── 4.5. 소형 텍스트 블록 확대 재인식 ────────────────────────────────────────
-# 실측: 표처럼 촘촘하게 작은 글자(평균 높이 16px 미만)가 몰려 있는 블록은
-# 원본 해상도 그대로면 거의 못 읽는다("SB-LWSS7 1.5,2,2.5,3,4,5,6"이
-# "5E-L55715225345E"로 깨짐). 그 블록만 원본 이미지에서 잘라 확대(5배)한
-# 뒤 같은 엔진으로 다시 인식하면 모델명·숫자 패턴이 훨씬 잘 잡힌다(실측
-# 확인). 새 모델을 추가로 불러오지 않고 이미 로드된 엔진을 재사용하므로
-# 안정성에는 영향이 없고, 이 블록에 한해 추론을 한 번 더 하는 비용만
-# 든다.
-
-_REOCR_MAX_AVG_HEIGHT = 20
-_REOCR_UPSCALE = 5
-_REOCR_PADDING = 4
-
-
-def _reocr_small_text_block(img, block, engine):
-    if not block:
-        return block
-    avg_h = sum(w["h"] for w in block) / len(block)
-    if avg_h > _REOCR_MAX_AVG_HEIGHT:
-        return block
-
-    x1 = max(0, int(min(w["x1"] for w in block) - _REOCR_PADDING))
-    y1 = max(0, int(min(w["y1"] for w in block) - _REOCR_PADDING))
-    x2 = min(img.width, int(max(w["x2"] for w in block) + _REOCR_PADDING))
-    y2 = min(img.height, int(max(w["y2"] for w in block) + _REOCR_PADDING))
-    if x2 <= x1 or y2 <= y1:
-        return block
-
-    crop = img.crop((x1, y1, x2, y2))
-    big = crop.resize((crop.width * _REOCR_UPSCALE, crop.height * _REOCR_UPSCALE), Image.LANCZOS)
-    try:
-        result = engine.predict(np.array(big))
-    except Exception:
-        return block
-    new_words = _words_from_result(result)
-    if not new_words:
-        return block
-
-    # 확대해서 인식한 좌표를 원본 이미지 좌표계로 되돌린다.
-    for w in new_words:
-        for key in ("x1", "x2", "xc"):
-            w[key] = w[key] / _REOCR_UPSCALE + x1
-        for key in ("y1", "y2", "yc"):
-            w[key] = w[key] / _REOCR_UPSCALE + y1
-        w["h"] /= _REOCR_UPSCALE
-        w["w"] /= _REOCR_UPSCALE
-
-    print(f"    소형 텍스트 블록 재인식(평균 높이 {avg_h:.1f}px): "
-          f"{len(block)}개 → {len(new_words)}개 단어")
-    return new_words
-
-
-# detect_product_lang은 상품 페이지(context.md) 전체 기준이라, 한국어
-# 위주 페이지 안에 박힌 순수 영문/숫자 행(규격표 이미지의 데이터 행 등)은
-# 여전히 한국어 모델로 인식된다 — 실측 사례: 나비엠알오 L렌치 규격표가
-# "SB-LWSl?", "152253456810"처럼 대소문자·쉼표·마침표가 다 깨짐.
-# 페이지 판정과 달리 한글 '비율'로 보면 안 된다 — 표 헤더 행("모델No.",
-# "구성", "형태" 등)의 짧은 한글 라벨 몇 글자만으로도 비율이 기준을
-# 넘어버려 정작 숫자/모델명이 밀집된 행을 놓친다. 대신 숫자·라틴 문자의
-# '절대 개수'가 이 정도면 표 데이터 행으로 보고 되돌린다(한국어 모델이
-# 이미 잘 읽는 자연스러운 한국어 문장에는 이 조건이 거의 걸리지 않는다
-# — 문장에는 숫자가 이만큼 몰려 있지 않다). 블록 전체가 아니라 각 행에
-# 개별 적용해, 숫자가 없는 헤더 행은 그대로 한국어 모델에 남긴다.
-_ROW_FOREIGN_MIN_DIGIT_CHARS = 8
-_ROW_FOREIGN_MIN_LATIN_CHARS = 6
-
-
-def _reocr_foreign_block(img, row, ocr_version, force=False):
-    """row(한 행의 단어 목록)가 실제로는 페이지 전체 언어와 다른
-    외국어/숫자 위주 콘텐츠로 보이면 반대 모델(PP-OCRv5 등)로 다시
-    인식해 대체한다. (row, 외국어_모델_사용_여부) 튜플을 반환한다 —
-    호출 쪽에서 이 정보로 한국어 전용 띄어쓰기 교정(kiwipiepy) 적용
-    여부를 정한다.
-
-    force=True면 이 행 자체의 숫자/라틴 개수 조건을 건너뛴다 — 표의
-    데이터 행 전체를 한 그룹으로 이미 판단한 뒤 개별 행에 적용할 때
-    쓴다. 첫 인식이 심하게 깨지면 글자↔숫자가 서로 뒤섞여 행 하나만
-    봤을 때 조건 자체를 못 채우는 행이 생긴다(실측: 나비엠알오 표 5개
-    데이터 행 중 2개, "SB"가 "58"로 읽혀 라틴 문자 신호가 사라짐)."""
-    if not row or ocr_version != config.OCR_VERSION:
-        # 이미 외국어 모델을 쓰는 페이지면 되돌리지 않는다 — 자연스러운
-        # 한국어 문장을 외국어 모델로 잘못 읽는 위험이 그 반대보다 크다
-        # (ocr/config.py의 OCR_VERSION 주석 참고).
-        return row, False
-
-    if not force:
-        text = "".join(w["text"] for w in row)
-        digit_count = len(_DIGIT_RE.findall(text))
-        latin_count = len(_LATIN_RE.findall(text))
-        if digit_count < _ROW_FOREIGN_MIN_DIGIT_CHARS or latin_count < _ROW_FOREIGN_MIN_LATIN_CHARS:
-            return row, False
-
-    foreign_version = config.OCR_FOREIGN_LANG_OCR_VERSION
-    foreign_engine = get_engine(foreign_version)
-
-    x1 = max(0, int(min(w["x1"] for w in row) - _REOCR_PADDING))
-    y1 = max(0, int(min(w["y1"] for w in row) - _REOCR_PADDING))
-    x2 = min(img.width, int(max(w["x2"] for w in row) + _REOCR_PADDING))
-    y2 = min(img.height, int(max(w["y2"] for w in row) + _REOCR_PADDING))
-    if x2 <= x1 or y2 <= y1:
-        return row, False
-
-    crop = img.crop((x1, y1, x2, y2))
-    big = crop.resize((crop.width * _REOCR_UPSCALE, crop.height * _REOCR_UPSCALE), Image.LANCZOS)
-    try:
-        result = foreign_engine.predict(np.array(big))
-    except Exception:
-        return row, False
-    new_words = _words_from_result(result)
-    if not new_words:
-        return row, False
-
-    for w in new_words:
-        for key in ("x1", "x2", "xc"):
-            w[key] = w[key] / _REOCR_UPSCALE + x1
-        for key in ("y1", "y2", "yc"):
-            w[key] = w[key] / _REOCR_UPSCALE + y1
-        w["h"] /= _REOCR_UPSCALE
-        w["w"] /= _REOCR_UPSCALE
-
-    print(f"    숫자/영문 밀집 행 감지 → {foreign_version}로 재인식: "
-          f"{len(row)}개 → {len(new_words)}개 단어")
-    return new_words, True
-
-
-# 행 단위 판정의 한계: "모델No./구성/세트수량"처럼 숫자·영문이 밀집된
-# 열과 "형태"(쇼트/롱/일반)처럼 한글인 열이 같은 행에 있으면, 행 전체를
-# 외국어 모델로 넘길 때 그 안의 한글 값까지 같이 깨진다(실측: 나비엠알오
-# 표). 표는 이미 헤더 열 위치(anchor)로 구조를 알고 있으니, 그 구조를
-# 그대로 이용해 열 단위로 판정하면 숫자 열만 정확히 골라 바꾸고 한글
-# 열은 절대 건드리지 않을 수 있다.
-_COL_FOREIGN_MIN_DIGIT_CHARS = 6
-_COL_FOREIGN_MIN_LATIN_CHARS = 6
-
-
-def _column_is_foreign(words):
-    """words: 표의 한 '열' 전체(여러 데이터 행에 걸친)에 배정된 단어들.
-    한글이 하나라도 섞여 있으면(형태 열 등) 절대 바꾸지 않는다 —
-    숫자/영문 열만 정확히 골라내는 게 목적이라 애매하면 그대로 둔다."""
-    text = "".join(w["text"] for w in words)
-    if _HANGUL_RE.search(text):
-        return False
-    digit_count = len(_DIGIT_RE.findall(text))
-    latin_count = len(_LATIN_RE.findall(text))
-    return digit_count >= _COL_FOREIGN_MIN_DIGIT_CHARS or latin_count >= _COL_FOREIGN_MIN_LATIN_CHARS
-
-
-def _reocr_foreign_columns(img, rows, ocr_version):
-    """rows[0]를 헤더로 보고 각 데이터 행의 단어를 헤더 열 위치(anchor)
-    기준으로 열에 배정한 뒤, 열 단위로 외국어 모델 전환 여부를 정한다.
-    연속된 외국어 열은 한 번에 잘라 재인식해 호출 횟수를 줄인다.
-    (rows, 행별_외국어_모델_사용_여부) 튜플을 반환한다."""
-    header, body_rows = rows[0], rows[1:]
-    if not body_rows:
-        return rows, [False] * len(rows)
-
-    anchors = [w["xc"] for w in header]
-    row_cols = []  # body_rows와 같은 길이. 각 원소: {col_idx: [word, ...]}
-    for row in body_rows:
-        cols = {}
-        for w in row:
-            idx = min(range(len(anchors)), key=lambda i: abs(w["xc"] - anchors[i]))
-            cols.setdefault(idx, []).append(w)
-        row_cols.append(cols)
-
-    foreign_cols = {
-        col_idx for col_idx in range(len(anchors))
-        if _column_is_foreign([w for cols in row_cols for w in cols.get(col_idx, [])])
-    }
-    if not foreign_cols:
-        return rows, [False] * len(rows)
-
-    col_runs, run = [], []
-    for col_idx in range(len(anchors)):
-        if col_idx in foreign_cols:
-            run.append(col_idx)
-        elif run:
-            col_runs.append(run)
-            run = []
-    if run:
-        col_runs.append(run)
-
-    new_body_rows, used_foreign_flags = [], []
-    for cols in row_cols:
-        used_foreign = False
-        new_row = [w for idx, words in cols.items() if idx not in foreign_cols for w in words]
-        for col_run in col_runs:
-            run_words = [w for idx in col_run for w in cols.get(idx, [])]
-            if not run_words:
-                continue
-            run_words, ok = _reocr_foreign_block(img, run_words, ocr_version, force=True)
-            used_foreign = used_foreign or ok
-            new_row.extend(run_words)
-        # 유지한 열과 재인식한 열을 각각 따로 모았을 뿐이라 왼쪽→오른쪽
-        # 순서가 깨져 있다 — _row_to_line은 입력 순서를 그대로 믿으므로
-        # 여기서 x좌표 기준으로 다시 정렬해줘야 한다.
-        new_row.sort(key=lambda w: w["x1"])
-        new_body_rows.append(new_row)
-        used_foreign_flags.append(used_foreign)
-
-    return [header] + new_body_rows, [False] + used_foreign_flags
-
-
 # ── 5. 파이프라인 ─────────────────────────────────────────────────────────────
 
-def run_ocr(image_path, ocr_version=None):
+def run_ocr(image_path):
     img = Image.open(image_path).convert("RGB")
     width, height = img.size
-    ocr_version = ocr_version or config.OCR_VERSION
-    is_korean = ocr_version == config.OCR_VERSION
 
     all_words = []
     y, tile_idx = 0, 1
-    engine = get_engine(ocr_version)
+    engine = get_engine()
 
     while y < height:
         bottom = min(y + config.OCR_TILE_HEIGHT, height)
@@ -631,49 +336,44 @@ def run_ocr(image_path, ocr_version=None):
         y = bottom if bottom >= height else bottom - config.OCR_TILE_OVERLAP
 
     all_words = _dedup(all_words)
-    lines = []
-    line_is_korean_engine = []
-    for block in _split_into_blocks(all_words):
-        block = _reocr_small_text_block(img, block, engine)
-        rows = _group_rows(block)
-        # 표로 보이는 구조(헤더 3~6열 + 데이터 행 3개 이상)면 헤더 열
-        # 위치 기준으로 열 단위 판정(_reocr_foreign_columns)을 쓴다 —
-        # 같은 행 안에 숫자/모델명 열과 한글 열("형태" 등)이 섞여 있어도
-        # 한글 열은 건드리지 않는다. 표가 아니면(문단, 2열 라벨:값 목록
-        # 등) 행 단위 판정으로 충분하다.
-        looks_like_table = len(rows) >= 3 and 3 <= len(rows[0]) <= 6
-        if looks_like_table and is_korean:
-            rows, used_foreign_flags = _reocr_foreign_columns(img, rows, ocr_version)
-        else:
-            new_rows, used_foreign_flags = [], []
-            for row in rows:
-                row, used_foreign = _reocr_foreign_block(img, row, ocr_version)
-                new_rows.append(row)
-                used_foreign_flags.append(used_foreign)
-            rows = new_rows
-        table_lines = _reconstruct_table_rows(rows)
-        new_lines = table_lines if table_lines is not None else [_row_to_line(row) for row in rows]
-        lines.extend(new_lines)
-        line_is_korean_engine.extend([is_korean and not uf for uf in used_foreign_flags])
-    # 행 재조합(탭/공백 구분)이 끝난 뒤에 띄어쓰기를 복원한다. 재조합 전에
-    # 하면 문자 수가 바뀌어 열 간격 판단(_row_to_line의 char_w 계산)이
-    # 틀어질 수 있어, 최종 줄 단위로만 적용한다. kiwipiepy는 한국어
-    # 형태소 분석기라 외국어 모델(PP-OCRv5)로 인식한 줄(페이지 전체든
-    # _reocr_foreign_block으로 블록만 대체됐든)에는 적용하지 않는다.
-    lines = [
-        correct_spacing(line) if is_korean_line else line
-        for line, is_korean_line in zip(lines, line_is_korean_engine)
-    ]
-    return "\n".join(lines)
+    # 열(column) 단위로 먼저 나눈 뒤 열마다 따로 행을 묶는다 — 안 그러면
+    # 같은 y대에 있는 서로 다른 열(예: 좌측 캡션 vs 우측 표)의 텍스트가
+    # 한 행으로 섞인다.
+    blocks = []
+    for column_words in _split_into_columns(all_words):
+        rows = _group_rows(column_words)
+        if not rows:
+            continue
+        # 행 재조합(탭/공백 구분)이 끝난 뒤에 띄어쓰기를 복원한다. 재조합 전에
+        # 하면 문자 수가 바뀌어 열 간격 판단(_row_to_line의 char_w 계산)이
+        # 틀어질 수 있어, 최종 줄 단위로만 적용한다.
+        blocks.append("\n".join(correct_spacing(_row_to_line(r)) for r in rows))
+    return "\n\n".join(blocks)
 
 
-_ISOLATE_TIMEOUT_SEC = 300  # 상품 폴더 하나에 이미지가 여러 개일 수 있어 여유 있게 잡는다
-# (180초로 줄여봤지만 정상 처리가 180초를 넘는 경우도 있어 오히려 더 자주
-# 죽이고 재시도하게 돼 전체 시간이 늘어나는 걸 실측했다 — 300초가 낫다)
+_ISOLATE_TIMEOUT_BASE_SEC = 60   # 프로세스 시작 + 엔진 로딩 여유
+# 2026-08-23: 이미지 개수 기준 고정치(90초/장)였더니 타일 7~8장짜리
+# 초대형 이미지(danawa asset_003: 실측 209초)에서 재시도 예산(150초)이
+# 부족해 240초/150초 두 번 타임아웃 나고서야 3번째 시도에서 겨우
+# 성공하는 걸 실측(총 488초 소요, ~180초 낭비). 이미지 1장의 실제
+# 부하는 "타일 수"에 비례하므로(위 이미지는 7타일, 실측 최대 ~30초/타일)
+# 이미지 개수 대신 예상 타일 수로 계산해 여유를 둔다.
+_ISOLATE_TIMEOUT_PER_TILE_SEC = 45
 _ISOLATE_MAX_RETRIES = 3
 
 
-def _ocr_one_inprocess(image_path, text_path, ocr_version=None):
+def _estimate_tile_count(image_path):
+    """run_ocr()의 타일 분할과 동일한 기준(OCR_TILE_HEIGHT)으로 이미지
+    하나가 몇 개 타일로 나뉠지 추정한다 (오버랩은 안전 마진으로 무시)."""
+    try:
+        with Image.open(image_path) as img:
+            height = img.height
+    except Exception:
+        return 1
+    return max(1, -(-height // config.OCR_TILE_HEIGHT))  # ceil division
+
+
+def _ocr_one_inprocess(image_path, text_path):
     """이미지 하나를 현재 프로세스 안에서 OCR한다 (엔진을 새로 만들지
     않고 get_engine()의 캐시를 그대로 재사용). --batch 모드 안에서
     같은 상품의 이미지 여러 개를 한 엔진으로 처리할 때 쓴다."""
@@ -683,7 +383,7 @@ def _ocr_one_inprocess(image_path, text_path, ocr_version=None):
     start_time = time.perf_counter()
 
     try:
-        text = run_ocr(image_path, ocr_version)
+        text = run_ocr(image_path)
     except Exception as e:
         elapsed = time.perf_counter() - start_time
         print(f"  ❌ OCR 실패: {e}")
@@ -707,25 +407,33 @@ def _is_cached(image_path, text_path):
             os.path.getmtime(text_path) >= os.path.getmtime(image_path))
 
 
-def _run_batch_isolated(pairs, ocr_version):
-    """같은 상품 폴더의 이미지들을 한 프로세스에서 처리한다 (엔진을 한
-    번만 불러와 재사용). 이미지 하나마다 새 프로세스를 쓰면 이 환경에서
-    엔진 로딩(수 초~수십 초)이 이미지 수만큼 반복돼 느려지는 걸 실측했다
-    (예전 OCR 코드는 페이지 전체를 한 프로세스에서 한 엔진으로 처리해
-    이미지가 커도 오래 안 걸렸다). 상품 폴더 단위로 묶으면 그 정도
-    속도를 대부분 되찾으면서도, 프로세스가 죽거나 멈춰도 그 상품의
-    이미지들만 영향받고 나머지 상품은 무관하게 유지된다. 이미 이
-    프로세스 안에서 처리 완료된 이미지는 파일로 남으므로 재시도 시
-    남은 것만 다시 보낸다."""
+def _run_batch_isolated(pairs):
+    """이미지들을 한 프로세스(한 엔진)로 처리한다.
+
+    2026-08-23: 상품 폴더 단위로 매번 새 프로세스를 띄우던 것을, 캡처
+    실행 전체의 미처리 이미지를 모아 한 번에 넘기도록 바꿨다. 상품이
+    N개면 엔진 로딩(수 초)이 N번 반복되던 걸 정상 경로에서는 1번으로
+    줄인다. 안전망은 그대로 유지된다 — 프로세스가 죽거나 타임아웃 나도
+    아래 재시도 루프가 '아직 캐시 파일이 없는(=처리 안 된)' 이미지만
+    골라 새 프로세스로 다시 보낸다. 이미지 단위 판별이라 어느 상품의
+    이미지가 죽였든 그 이미지들만 재시도 대상이 되고, 이미 끝난 이미지는
+    (다른 상품 것이어도) 영향받지 않는다 — 상품 단위였을 때와 동일한
+    격리 보장이 유지된다.
+    타임아웃은 남은 이미지들의 예상 타일 수 합계에 비례해 매번 다시
+    계산한다 (세로로 아주 긴 이미지 하나가 타일 여러 장을 도는 경우까지
+    감안한 여유치 — 이미지 개수만 보면 초대형 이미지에서 예산이 부족할
+    수 있다)."""
     remaining = list(pairs)
     for attempt in range(1, _ISOLATE_MAX_RETRIES + 1):
-        args = [sys.executable, __file__, "--batch", ocr_version]
+        est_tiles = sum(_estimate_tile_count(image_path) for image_path, _ in remaining)
+        timeout = _ISOLATE_TIMEOUT_BASE_SEC + _ISOLATE_TIMEOUT_PER_TILE_SEC * est_tiles
+        args = [sys.executable, __file__, "--batch"]
         for image_path, text_path in remaining:
             args += [image_path, text_path]
         try:
-            subprocess.run(args, timeout=_ISOLATE_TIMEOUT_SEC)
+            subprocess.run(args, timeout=timeout)
         except subprocess.TimeoutExpired:
-            print(f"    프로세스가 {_ISOLATE_TIMEOUT_SEC}초 동안 응답이 없어 종료합니다 "
+            print(f"    프로세스가 {timeout}초 동안 응답이 없어 종료합니다 "
                   f"({attempt}/{_ISOLATE_MAX_RETRIES})")
 
         remaining = [(i, t) for i, t in remaining if not _is_cached(i, t)]
@@ -735,34 +443,35 @@ def _run_batch_isolated(pairs, ocr_version):
             print(f"    {len(remaining)}개 남음, 재시도합니다 ({attempt}/{_ISOLATE_MAX_RETRIES})")
 
 
-def _write_context_with_ocr(crawl_prefix, ocr_product_dir, ocr_text):
-    """crawl/이 만든 context.md(DOM 표 + 전체 텍스트)에 OCR 텍스트 섹션을
-    더해 ocr/output/ 쪽에 저장한다. extract/가 LLM 프롬프트로 그대로
-    넘길 수 있는 통합 마크다운을 만들기 위함이다. crawl/output/의 원본
-    context.md는 건드리지 않는다 — 각 단계는 자기 출력 폴더에만 쓰고
-    상위 단계의 폴더는 읽기만 한다는 규칙을 지킨다.
+def _write_product_md(ocr_product_dir, crawl_prefix, ocr_chunks):
+    """crawl_prefix/context.md(DOM/표/상품영역) 맨 아래에 이미지 OCR 결과를
+    이어붙여 ocr_product_dir/product.md로 저장한다. extract/extractor.py가
+    이 파일을 context+OCR 통합 컨텍스트로 읽는다. context.md가 없는
+    상품(차단/에러 등)은 만들 내용이 없으므로 건너뛴다."""
+    context_path = os.path.join(crawl_prefix, "context.md")
+    if not os.path.exists(context_path):
+        return False
 
-    ocr_text가 없어도(OCR 대상 이미지가 아예 없거나 전부 인식 실패)
-    이 함수는 항상 호출된다 — crawl의 DOM 표/텍스트만으로도 extract가
-    읽을 파일이 있어야 한다. OCR 섹션은 실제 텍스트가 있을 때만 붙인다."""
-    src_path = os.path.join(crawl_prefix, "context.md")
-    base_md = ""
-    if os.path.exists(src_path):
-        with open(src_path, encoding="utf-8") as f:
-            base_md = f.read().rstrip()
+    with open(context_path, encoding="utf-8") as f:
+        parts = [f.read().rstrip()]
 
-    if ocr_text.strip():
-        section = f"## OCR 추출 텍스트\n\n```\n{ocr_text}\n```\n"
-        merged = f"{base_md}\n\n{section}" if base_md else f"# OCR 추출 텍스트\n\n{section}"
-    else:
-        merged = base_md
+    if ocr_chunks:
+        images_md = "\n\n".join(
+            f"### 이미지 {i}\n\n{chunk}" for i, chunk in enumerate(ocr_chunks, 1)
+        )
+        parts.append("## 이미지 OCR\n\n" + images_md)
 
-    with open(os.path.join(ocr_product_dir, "context.md"), "w", encoding="utf-8") as f:
-        f.write(merged)
+    os.makedirs(ocr_product_dir, exist_ok=True)
+    with open(os.path.join(ocr_product_dir, "product.md"), "w", encoding="utf-8") as f:
+        f.write("\n\n".join(parts))
+    return True
 
 
 def ocr_capture_dir(crawl_dir, ocr_dir=None):
-    """crawl_dir의 이미지를 OCR해 ocr_dir에 텍스트를 저장한다.
+    """crawl_dir의 이미지를 OCR해 ocr_dir에 상품별 ocr_asset.txt +
+    product.md 두 파일만 저장한다(2026-08-23, 최종 출력 정리).
+    이미지별 중간 텍스트는 ocr/config.py:CACHE_DIR에 별도 보관해
+    ocr_dir을 깨끗하게 유지하면서도 재실행 캐시는 그대로 활용한다.
     ocr_dir 미지정 시 ocr/output/<run_name>/ 을 자동으로 사용한다."""
     if ocr_dir is None:
         run_name = os.path.basename(os.path.abspath(crawl_dir))
@@ -774,63 +483,60 @@ def ocr_capture_dir(crawl_dir, ocr_dir=None):
     print("=" * 50)
 
     images = find_ocr_targets(crawl_dir)
-    if images:
-        print(f"총 {len(images)}개 이미지 발견\n")
-    else:
-        print("OCR 대상 이미지가 없습니다 — crawl의 DOM 표/텍스트만으로 진행합니다.\n")
+    if not images:
+        print(f"❌ '{crawl_dir}'에 OCR 대상 이미지가 없습니다. main.py를 먼저 실행하세요.")
+        return {}
 
-    # 상품 폴더별로 그룹핑 — 같은 상품의 이미지들을 한 프로세스에서 처리한다.
+    print(f"총 {len(images)}개 이미지 발견\n")
+
+    # 상품 폴더별로 그룹핑 — product.md/ocr_asset.txt를 상품 단위로 쓰기 위함.
     by_product = {}
     for image_path in images:
         by_product.setdefault(product_prefix_for(image_path, crawl_dir), []).append(image_path)
 
-    combined_by_crawl_prefix = {}
     pipeline_start = time.perf_counter()
-    ocr_count, cache_hit_count = 0, 0
+    cache_hit_count = 0
 
+    # 1단계: 캡처 실행 전체의 미처리 이미지를 모아 프로세스 1개(엔진 1회
+    # 로딩)로 처리한다 (상품마다 프로세스를 새로 띄우던 것에서 개선).
+    pending_all = []
+    per_product_pairs = {}
     for crawl_prefix, product_images in by_product.items():
-        pending = []
-        for image_path in product_images:
-            text_path = image_output_path(image_path, crawl_dir, ocr_dir)
+        pairs = [(img, image_cache_path(img, crawl_dir)) for img in product_images]
+        per_product_pairs[crawl_prefix] = pairs
+        for image_path, text_path in pairs:
             if _is_cached(image_path, text_path):
                 print(f"\n  파일: {image_path}\n  (캐시 사용, OCR 생략)")
                 cache_hit_count += 1
             else:
-                pending.append((image_path, text_path))
+                pending_all.append((image_path, text_path))
 
-        if pending:
-            ocr_version = detect_product_lang(crawl_prefix)
-            if ocr_version != config.OCR_VERSION:
-                print(f"\n  [{crawl_prefix}] 외국어 페이지로 감지 — {ocr_version} 사용")
-            _run_batch_isolated(pending, ocr_version)
-            ocr_count += len(pending)
+    if pending_all:
+        _run_batch_isolated(pending_all)
+    ocr_count = len(pending_all)
 
+    # 2단계: 상품별로 이미지 텍스트를 모아 ocr_asset.txt + product.md 저장.
+    # context.md가 있는 상품은 이미지가 없거나 OCR이 비어도 product.md를 만든다
+    # (extractor.py가 항상 product.md 우선으로 읽으므로 존재만으로 일관되게 둔다).
+    combined_by_crawl_prefix = {}
+    for crawl_prefix, pairs in per_product_pairs.items():
         chunks = []
-        for image_path in product_images:
-            text_path = image_output_path(image_path, crawl_dir, ocr_dir)
+        for _image_path, text_path in pairs:
             if os.path.exists(text_path):
                 with open(text_path, encoding="utf-8") as f:
                     text = f.read().strip()
                 if text:
                     chunks.append(text)
-        combined_by_crawl_prefix[crawl_prefix] = chunks
+        if chunks:
+            combined_by_crawl_prefix[crawl_prefix] = chunks
 
-    # 상품별로 OCR 텍스트를 합쳐 ocr_dir 내 대응 폴더에 저장한다. crawl이
-    # 만든 상품 폴더 전체를 기준으로 돈다 — 이미지가 아예 없거나(크롤
-    # 실패 등) OCR이 전부 실패해 텍스트가 없는 상품도 DOM 표/텍스트만
-    # 으로 context.md를 만들어야 extract가 읽을 파일이 있다.
-    # extract_info.py가 이 파일을 읽는다.
-    product_dirs = sorted(d for d in glob.glob(os.path.join(crawl_dir, "*")) if os.path.isdir(d))
-    for crawl_prefix in product_dirs:
-        chunks = combined_by_crawl_prefix.get(crawl_prefix, [])
         rel = os.path.relpath(crawl_prefix, crawl_dir)
         ocr_product_dir = os.path.join(ocr_dir, rel)
-        os.makedirs(ocr_product_dir, exist_ok=True)
-        ocr_text = "\n\n".join(chunks)
         if chunks:
-            with open(os.path.join(ocr_product_dir, "ocr_combined.txt"), "w", encoding="utf-8") as f:
-                f.write(ocr_text)
-        _write_context_with_ocr(crawl_prefix, ocr_product_dir, ocr_text)
+            os.makedirs(ocr_product_dir, exist_ok=True)
+            with open(os.path.join(ocr_product_dir, "ocr_asset.txt"), "w", encoding="utf-8") as f:
+                f.write("\n\n".join(chunks))
+        _write_product_md(ocr_product_dir, crawl_prefix, chunks)
 
     total_elapsed = time.perf_counter() - pipeline_start
     print(f"\n📄 OCR 텍스트 저장 위치: {os.path.abspath(ocr_dir)}")
@@ -853,17 +559,15 @@ def _exit_now(code):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) >= 5 and sys.argv[1] == "--batch":
+    if len(sys.argv) >= 4 and sys.argv[1] == "--batch":
         # 격리 모드: 상품 하나(또는 그 일부)의 이미지들을 한 엔진으로
         # 처리한다 (_run_batch_isolated가 띄우는 자식 프로세스의
-        # 진입점). sys.argv[2]가 ocr_version, 이후 image_path/text_path
-        # 쌍이 번갈아 온다.
-        _ocr_version = sys.argv[2]
-        _pairs = list(zip(sys.argv[3::2], sys.argv[4::2]))
+        # 진입점). image_path/text_path 쌍이 번갈아 온다.
+        _pairs = list(zip(sys.argv[2::2], sys.argv[3::2]))
         for _image_path, _text_path in _pairs:
             if _is_cached(_image_path, _text_path):
                 continue  # 같은 배치의 이전 시도에서 이미 처리됨
-            _ocr_one_inprocess(_image_path, _text_path, _ocr_version)
+            _ocr_one_inprocess(_image_path, _text_path)
         _exit_now(0)
 
     crawl_target = sys.argv[1] if len(sys.argv) > 1 else find_latest_capture_dir(
