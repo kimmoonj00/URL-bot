@@ -9,6 +9,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import glob
+import re
 import subprocess
 import time
 
@@ -315,6 +316,234 @@ def _row_to_line(row: list) -> str:
     return "".join(parts)
 
 
+# ── 4.5. 표 영역 재인식 (크롭 → 고배율 → 열 그리드) ─────────────────────────
+
+def _has_hangul(s: str) -> bool:
+    return any("가" <= ch <= "힣" for ch in s)
+
+
+def _row_y(row: list) -> float:
+    return sum(w["yc"] for w in row) / len(row)
+
+
+def _find_table_run(rows: list):
+    """행 목록에서 '연속으로 표처럼 보이는'(정렬된 단어 N개 이상) 가장 긴
+    구간을 찾고, 그 위/아래로 세로 간격이 표의 행 간격과 비슷한 행은
+    단어 수가 적어도(붙어 인식된 행) 구간에 포함시킨다. (start, end) 반환,
+    조건 미달이면 None."""
+    min_cols = config.OCR_TABLE_MIN_COLS
+    best, i, n = None, 0, len(rows)
+    while i < n:
+        if len(rows[i]) < min_cols:
+            i += 1
+            continue
+        j = i
+        while j < n and len(rows[j]) >= min_cols:
+            j += 1
+        if best is None or (j - i) > (best[1] - best[0]):
+            best = (i, j)
+        i = j
+    if not best or best[1] - best[0] < config.OCR_TABLE_MIN_ROWS:
+        return None
+    counts = [len(rows[k]) for k in range(*best)]
+    # 진짜 표는 행마다 셀 수가 비슷하다. 폭이 크면(뉴스 스샷 몽타주 등 잡음이
+    # 우연히 걸린 것) 재인식 대상에서 뺀다.
+    if max(counts) < min_cols + 1 or max(counts) - min(counts) > min_cols:
+        return None
+
+    s, e = best
+    ys = [_row_y(rows[k]) for k in range(s, e)]
+    pitch = (ys[-1] - ys[0]) / max(1, len(ys) - 1)   # 표의 평균 행 간격
+    while e < n and 1 <= len(rows[e]) and _row_y(rows[e]) - _row_y(rows[e - 1]) < pitch * 1.8:
+        e += 1
+    while s > 0 and 1 <= len(rows[s - 1]) and _row_y(rows[s]) - _row_y(rows[s - 1]) < pitch * 1.8:
+        s -= 1
+    return (s, e)
+
+
+# 표 셀에서 "모델번호 + 붙어버린 첫 수치"를 떼어낸다. 머리와 꼬리 사이에
+# 실제 구분(공백) 또는 소수점/콤마 수치의 시작이 있어야만 매칭 — 깔끔한
+# 순수 숫자 모델번호("05007610001")를 "050076100"+"01"로 자르지 않도록.
+_GLUED_CELL_RE = re.compile(
+    r"^([A-Z][A-Z0-9]*(?:[-/][A-Z0-9]+)+|[A-Z]{2,}[A-Z0-9]*\d|\d{6,})"
+    r"(?:\s+|(?=\d+[.,]\d))"
+    r"([^\t]*\d[\d.,/][\d.,/]*.*)$"
+)
+
+
+def _column_edges(rows: list, x_left: float, x_right: float) -> list:
+    """행들의 단어 [x1,x2]를 x축에 투영해 열 구분선(거의 아무 행도 덮지 않는
+    빈 세로 띠)의 중앙 좌표 목록(양끝 포함)을 만든다. 헤더 셀은 데이터 셀과
+    폭·위치가 달라 데이터 열 사이 틈을 가리므로, 첫 행(대개 헤더)을 빼고
+    '단어 수가 가장 많은' 데이터 행들만으로 투영한다(행 단위 union)."""
+    body = rows[1:] if len(rows) > 2 else rows
+    max_wc = max(len(r) for r in body)
+    ref = [r for r in body if len(r) == max_wc] or body
+    span = int(round(x_right - x_left)) + 1
+    if span < 10:
+        return [x_left, x_right]
+    cover = np.zeros(span, dtype=np.int32)
+    for r in ref:                                    # 행마다 덮은 구간의 union을 +1
+        mask = np.zeros(span, dtype=bool)
+        for w in r:
+            a = max(0, int(round(w["x1"] - x_left)))
+            b = min(span, int(round(w["x2"] - x_left)))
+            if b > a:
+                mask[a:b] = True
+        cover[mask] += 1
+    tol = max(0, int(len(ref) * 0.25))               # 이 수 이하로 덮이면 '빈 띠'
+    edges, i, min_gap = [x_left], 0, config.OCR_TABLE_COL_SEP_MIN_GAP
+    while i < span:
+        if cover[i] <= tol:
+            j = i
+            while j < span and cover[j] <= tol:
+                j += 1
+            if i > 0 and j < span and (j - i) >= min_gap:
+                edges.append(x_left + (i + j) / 2.0)
+            i = j
+        else:
+            i += 1
+    edges.append(x_right)
+    return edges
+
+
+def _maybe_split_first_column(grid_rows: list) -> list:
+    """대부분의 행에서 첫 칸이 "<모델번호> <나머지>" 꼴이면 첫 칸을 둘로
+    쪼갠다 (열 사이에 실제 빈 틈이 없어 model·구성이 한 칸에 묶인 경우)."""
+    matches = [_GLUED_CELL_RE.match(cells[0].strip()) if cells else None
+               for cells in grid_rows]
+    hits = sum(1 for m in matches if m)
+    if hits < max(2, len(grid_rows) * 0.5):
+        return grid_rows
+    out = []
+    for cells, m in zip(grid_rows, matches):
+        if m:
+            out.append([m.group(1), m.group(2).strip()] + list(cells[1:]))
+        else:
+            out.append([cells[0], ""] + list(cells[1:]))
+    return out
+
+
+def _fill_from_twin_row(grid_rows: list) -> list:
+    """variant 표에서 '구성 리스트'(콤마가 가장 많은 칸)가 다른 행과 똑같은데
+    어떤 칸이 비었거나 깨졌으면, 그 쌍둥이 행의 값을 가져와 채운다.
+    (강조박스가 글자 위를 지나가 SB-LWSL7의 "7"·수량 "7"이 유실된 행을,
+    구성이 동일한 SB-LWSS7 행에서 복원.) 채운 뒤 모델 끝 잡숫자도 정리."""
+    if len(grid_rows) < 3:
+        return grid_rows
+    ncol = max(len(r) for r in grid_rows)
+    body = [r for r in grid_rows if len(r) == ncol]
+    if len(body) < 3:
+        return grid_rows
+
+    def list_key(row):
+        cell = max(row[1:], key=lambda c: c.count(","), default="")
+        return re.sub(r"\s+", "", cell) if cell.count(",") >= 3 else None
+
+    keys = [list_key(r) for r in body]
+    for i, r in enumerate(body):
+        if keys[i] is None:
+            continue
+        twin = next((body[j] for j in range(len(body))
+                     if j != i and keys[j] == keys[i]), None)
+        if twin is None:
+            continue
+        for ci in range(1, ncol):
+            cur, good = r[ci].strip(), twin[ci].strip()
+            # 비었거나 구두점만 있는 칸만 채운다 (멀쩡한 값은 건드리지 않음)
+            if good and (not cur or re.fullmatch(r"[^\w가-힣]+", cur)):
+                r[ci] = good
+                if re.fullmatch(r"\d{1,2}", good):          # 모델 끝 잡숫자 제거
+                    r[0] = re.sub(rf"^(.+?{good})\d$", r"\1", r[0].strip())
+    return grid_rows
+
+
+def _grid_from_words(words: list):
+    """재인식한 word들을 표 그리드(각 행 = 탭 구분 셀)로 재구성한다.
+    한글이 든 셀은 kiwi로 띄어쓰기를 복원한다. 열이 부족하면 None."""
+    rows = [r for r in _group_rows(words) if r]
+    if len(rows) < 2:
+        return None
+    x_left = min(w["x1"] for r in rows for w in r)
+    x_right = max(w["x2"] for r in rows for w in r)
+    edges = _column_edges(rows, x_left, x_right)
+    n_cols = len(edges) - 1
+    if n_cols < config.OCR_TABLE_MIN_COLS - 1:
+        return None
+
+    grid_rows = []
+    for r in rows:
+        cells = [""] * n_cols
+        for w in r:
+            k = 0
+            while k < n_cols - 1 and w["xc"] >= edges[k + 1]:
+                k += 1
+            cells[k] = (cells[k] + " " + w["text"]).strip() if cells[k] else w["text"]
+        grid_rows.append(cells)
+
+    grid_rows = _maybe_split_first_column(grid_rows)
+    grid_rows = _fill_from_twin_row(grid_rows)
+    if max(len(c) for c in grid_rows) < config.OCR_TABLE_MIN_COLS:
+        return None
+    # 영문/숫자가 든 셀이 MIN_COLS개 이상인 '멀쩡한' 행이 충분히 있어야
+    # 진짜 표로 인정한다 (구두점만 흩어진 잡음 그리드 배제).
+    solid = sum(1 for c in grid_rows
+                if sum(bool(re.search(r"[0-9A-Za-z가-힣]", x)) for x in c) >= config.OCR_TABLE_MIN_COLS)
+    if solid < config.OCR_TABLE_MIN_ROWS:
+        return None
+
+    lines = []
+    for cells in grid_rows:
+        cells = [correct_spacing(c) if _has_hangul(c) else c for c in cells]
+        lines.append("\t".join(cells).rstrip("\t"))
+    return "\n".join(lines)
+
+
+def _reocr_table_run(img, table_rows: list):
+    """table_rows가 차지하는 영역을 원본에서 잘라 고배율 확대(+어두우면 반전)
+    후 타일 없이 1회 predict → 그리드 문자열. 실패하면 None."""
+    pad = config.OCR_TABLE_REOCR_PAD
+    x1 = max(0, int(min(w["x1"] for r in table_rows for w in r) - pad))
+    y1 = max(0, int(min(w["y1"] for r in table_rows for w in r) - pad))
+    x2 = min(img.width, int(max(w["x2"] for r in table_rows for w in r) + pad))
+    y2 = min(img.height, int(max(w["y2"] for r in table_rows for w in r) + pad))
+    # 작은 표일수록 크게 확대한다 (좁은 글씨·겹친 강조박스에서 "7"↔"/1" 같은
+    # 오독을 줄인다). 목표 폭 기준, 배율은 [MIN, MAX]로 제한.
+    up = max(config.OCR_TABLE_REOCR_UPSCALE_MIN,
+             min(config.OCR_TABLE_REOCR_UPSCALE_MAX,
+                 config.OCR_TABLE_REOCR_TARGET_W / max(1, x2 - x1)))
+    crop = img.crop((x1, y1, x2, y2)).resize(
+        (max(1, int((x2 - x1) * up)), max(1, int((y2 - y1) * up))), Image.LANCZOS)
+    arr = np.array(crop)
+    if float(arr.mean()) < config.OCR_TABLE_DARK_LUMA_THRESHOLD:
+        arr = 255 - arr
+    words = _words_from_result(get_engine().predict(np.ascontiguousarray(arr)))
+    return _grid_from_words(words)
+
+
+def _render_block(rows: list, img) -> str:
+    """블록의 행들을 줄 텍스트로. 표 구간이 있으면 그 부분만 고배율 재인식
+    그리드로 바꿔 넣는다."""
+    run = _find_table_run(rows) if config.OCR_TABLE_REOCR_ENABLED else None
+    if not run:
+        return "\n".join(correct_spacing(_row_to_line(r)) for r in rows)
+
+    grid = None
+    try:
+        grid = _reocr_table_run(img, rows[run[0]:run[1]])
+    except Exception as error:
+        print(f"    (표 재인식 건너뜀: {error})")
+
+    parts = [correct_spacing(_row_to_line(r)) for r in rows[:run[0]]]
+    if grid and grid.strip():
+        print(f"    표 재인식: {run[1] - run[0]}행 → {len(grid.splitlines())}행 그리드")
+        parts.append(grid)
+    else:
+        parts += [correct_spacing(_row_to_line(r)) for r in rows[run[0]:run[1]]]
+    parts += [correct_spacing(_row_to_line(r)) for r in rows[run[1]:]]
+    return "\n".join(parts)
+
+
 # ── 5. 파이프라인 ─────────────────────────────────────────────────────────────
 
 def run_ocr(image_path):
@@ -338,16 +567,12 @@ def run_ocr(image_path):
     all_words = _dedup(all_words)
     # 열(column) 단위로 먼저 나눈 뒤 열마다 따로 행을 묶는다 — 안 그러면
     # 같은 y대에 있는 서로 다른 열(예: 좌측 캡션 vs 우측 표)의 텍스트가
-    # 한 행으로 섞인다.
+    # 한 행으로 섞인다. 행 재조합·띄어쓰기 복원은 _render_block에서 한다.
     blocks = []
     for column_words in _split_into_columns(all_words):
         rows = _group_rows(column_words)
-        if not rows:
-            continue
-        # 행 재조합(탭/공백 구분)이 끝난 뒤에 띄어쓰기를 복원한다. 재조합 전에
-        # 하면 문자 수가 바뀌어 열 간격 판단(_row_to_line의 char_w 계산)이
-        # 틀어질 수 있어, 최종 줄 단위로만 적용한다.
-        blocks.append("\n".join(correct_spacing(_row_to_line(r)) for r in rows))
+        if rows:
+            blocks.append(_render_block(rows, img))
     return "\n\n".join(blocks)
 
 

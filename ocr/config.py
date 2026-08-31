@@ -9,6 +9,25 @@ OCR_TILE_OVERLAP = 100
 OCR_CONFIDENCE_THRESHOLD = 0.30
 OCR_CACHE_ENABLED = True
 
+# ── 표 영역 재인식 ────────────────────────────────────────────────────────────
+# 일반 OCR는 배경이 균일한 규격표에서 검출이 행 전체를 한 줄로 뭉치거나
+# 타일 경계에서 반쪽만 잡는다("050076200011.06.0125…"). 그래서 '연속된 표
+# 행 구간'을 찾아 그 영역만 여유 있게 잘라 고배율로 확대(타일 없이 predict
+# 1회)해 다시 인식하고, 깨끗해진 단어를 x좌표로 열에 배정해 탭 그리드로
+# 재구성한다. 한글 셀은 kiwi로 띄어쓰기까지 복원한다.
+OCR_TABLE_REOCR_ENABLED = True
+OCR_TABLE_MIN_ROWS = 4            # 이만큼 연속으로 표스러운 행이 있어야 재인식
+OCR_TABLE_MIN_COLS = 3            # 행당 정렬된 단어(셀) 수 하한
+# 표 크롭을 이 목표 폭(px)이 되도록 확대한다. 작은 표(예: BUFFALO 렌치표
+# ~330px)는 더 크게(강조박스가 글자 위를 지나가 "7"이 "/1"로 뭉개지던 것이
+# 살아난다), 큰 표는 덜 키운다. 배율은 [MIN,MAX]로 제한.
+OCR_TABLE_REOCR_TARGET_W = 2400
+OCR_TABLE_REOCR_UPSCALE_MIN = 3.0
+OCR_TABLE_REOCR_UPSCALE_MAX = 6.0
+OCR_TABLE_REOCR_PAD = 20          # 크롭 상하좌우 여유(원본 px)
+OCR_TABLE_DARK_LUMA_THRESHOLD = 110   # 크롭 평균 밝기 < 이 값이면 색 반전
+OCR_TABLE_COL_SEP_MIN_GAP = 14    # 열 경계로 볼 최소 빈 간격(확대 크롭 기준 px)
+
 # PaddleOCR 좌표 재조립 파라미터
 OCR_IOU_THRESHOLD = 0.5
 OCR_ROW_TOLERANCE = 0.6
