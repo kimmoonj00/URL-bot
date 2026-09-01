@@ -7,6 +7,14 @@ import threading
 import uuid
 from datetime import datetime
 
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    # 한국어 Windows(cp949) 콘솔 인코딩으로는 crawl/crawler.py 등이 출력하는
+    # 이모지(⏱️ 등)를 print()할 때 UnicodeEncodeError가 난다. _LogCapture가
+    # 원본 stdout에도 그대로 이어 쓰기 때문에, 리다이렉트 전에 원본 stdout
+    # 자체의 인코딩을 미리 바꿔둬야 한다(ocr/paddle_ocr.py와 동일한 처리).
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles

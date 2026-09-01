@@ -7,6 +7,8 @@ SPEC_LABEL_KEYWORDS = {
     "model": ["모델명", "모델번호", "모델", "형번", "품번", "제품번호", "제품코드",
               "model name", "model no", "model number", "model", "type", "type no",
               "part no", "part number", "p/n", "sku", "ordering code", "mlfb", "품목번호"],
+    "제조원": ["제조원", "제조사", "제조업체", "생산자", "브랜드", "브랜드명",
+             "manufacturer", "made by", "maker", "brand", "brand name"],
     "규격": ["사이즈", "규격", "치수", "크기", "사양", "스펙", "제품사양",
              "size", "dimension", "dimensions", "specification", "spec"],
 }

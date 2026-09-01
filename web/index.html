@@ -16,6 +16,17 @@
 
     <main>
 
+      <!-- 실행 기록 -->
+      <section class="card" id="history-section">
+        <button class="section-header history-toggle" id="history-toggle">
+          <h2>실행 기록</h2>
+          <span class="chevron">▾</span>
+        </button>
+        <div id="job-list" hidden>
+          <p class="empty-state">아직 실행 기록이 없습니다</p>
+        </div>
+      </section>
+
       <!-- Step 1: 크롤링 -->
       <section class="card" id="crawl-section">
         <div class="section-header">
@@ -89,14 +100,6 @@
           <button id="close-extract-btn" class="btn-icon" title="닫기">✕</button>
         </div>
         <div id="extract-result-content"></div>
-      </section>
-
-      <!-- 실행 기록 -->
-      <section class="card" id="history-section">
-        <h2>실행 기록</h2>
-        <div id="job-list">
-          <p class="empty-state">아직 실행 기록이 없습니다</p>
-        </div>
       </section>
 
     </main>

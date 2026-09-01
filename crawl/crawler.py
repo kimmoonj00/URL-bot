@@ -697,6 +697,7 @@ def run_capture_bot(run_ocr_and_extract=True, urls=None):
 
     total_elapsed = time.perf_counter() - pipeline_started
     print(f"⏱️  전체 파이프라인 소요 시간: {total_elapsed:.1f}초")
+    return output_dir
 
 
 if __name__ == "__main__":

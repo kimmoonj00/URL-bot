@@ -16,6 +16,7 @@ const extractResultSection  = document.getElementById('extract-result-section');
 const extractResultContent  = document.getElementById('extract-result-content');
 const closeExtractBtn       = document.getElementById('close-extract-btn');
 const jobList               = document.getElementById('job-list');
+const historyToggle         = document.getElementById('history-toggle');
 
 let currentJobId = null;
 let eventSource  = null;
@@ -180,6 +181,12 @@ function renderResults(items) {
 
 // ── 실행 기록 ────────────────────────────────────────────────────────────────
 
+historyToggle.addEventListener('click', () => {
+  const isOpen = !jobList.hidden;
+  jobList.hidden = isOpen;
+  historyToggle.classList.toggle('open', !isOpen);
+});
+
 async function renderHistory() {
   try {
     const res = await fetch('/api/jobs');
@@ -273,9 +280,12 @@ function renderExtractResults(results) {
         </table>`
       : '<p class="empty-state">추출된 규격 없음</p>';
 
+    const manufacturer = r['제조원'];
+
     return `
       <div class="extract-card">
         <div class="extract-product-name">${escHtml(r['상품명'] || '(상품명 없음)')}</div>
+        ${manufacturer ? `<div class="extract-manufacturer">제조원: ${escHtml(manufacturer)}</div>` : ''}
         <a class="result-url-link" href="${escHtml(r['URL'])}" target="_blank" rel="noopener">${escHtml(r['URL'])}</a>
         ${variantsHtml}
       </div>
