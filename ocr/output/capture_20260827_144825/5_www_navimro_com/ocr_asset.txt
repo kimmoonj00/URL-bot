@@ -1,0 +1,13 @@
+NA	BUFFALO NRO
+
+IL 렌치세트 HEX L-KEY SET 원산지 다국적 NEW
+① SB-LWSL7 7pcs	② SB-LWSM9 9pcs
+3 SB-LWSS10
+10pcs
+
+모델 No.		(PCS) 세트 수량	형태
+SB-LWSS7	1.5,2,2.5,3,4,5,6	7	쇼트
+SB-LWSL7	1.5,2,2.5,3,4,5,6	7	동
+SB-LWSS9	1.5,2,2.5,3,4.5,6,8,10	9	쇼트
+SB-LWSM9	1.5,2,2.5,3,4.5,6,8,10	9	일반
+SB-LWSS10	1.5,2,2.5,3,4,5,5.5,6,8,10	10	쇼트

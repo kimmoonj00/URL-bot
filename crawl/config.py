@@ -27,6 +27,9 @@ MAX_OCR_ASSETS_PER_PAGE = 60
 MIN_OCR_ASSET_WIDTH = 250
 MIN_OCR_ASSET_HEIGHT = 80
 
+# 동시에 크롤링할 최대 페이지 수 (탭 수). 노트북 기준 2~3이 적절하다.
+MAX_CONCURRENT_PAGES = 3
+
 # 상품 본문 후보 선택자. 앞의 선택자부터 시도하고, 모두 실패하면 전체 화면을 OCR한다.
 PRODUCT_REGION_SELECTORS = {
     "www.festo.com": ["main", "[data-testid='product-detail']", "#main-content"],

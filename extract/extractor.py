@@ -38,18 +38,18 @@ LABEL_VALUE_TAB = re.compile(r"^\s*([^\t]{1,20})\t+(\S.{0,120})\s*$")
 SPEC_VALUE_PATTERNS = [re.compile(p) for p in config.SPEC_VALUE_PATTERNS]
 
 
-# ── LLM 추출 (Ollama / Qwen) ─────────────────────────────────────────────────
+# ── LLM 추출 (GPT) ───────────────────────────────────────────────────────────
 
-class QwenExtractionError(Exception):
+class ExtractionError(Exception):
     pass
 
 
 # few-shot 예시: (user_input, assistant_output) 쌍
-# 규칙만으로 Qwen이 놓치는 두 가지 패턴을 예시로 직접 보여준다.
 FEW_SHOT_EXAMPLES = [
     # 예시 1: 다중 variant 테이블 → 모델별 규격 분리 + 라벨 유지
     (
         "URL: https://example.com/driver/\n\n"
+        "URL에서 감지된 모델번호 힌트: (없음)\n\n"
         "[페이지 제목]\n일자 드라이버 (334)\n\n"
         "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
         "## 규격 테이블\n\n"
@@ -58,13 +58,14 @@ FEW_SHOT_EXAMPLES = [
         "| 일자 | 5 | 100 | 198 | 체코 | 05007610001 |\n"
         "| 일자 | 6 | 150 | 255 | 체코 | 05340330001 |\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "일자 드라이버 (334)", "제조원": "", "variants": ['
+        '{"product_name": "일자 드라이버 (334)", "manufacturer": "", "variants": ['
         '{"model": "05007610001", "규격": ["규격: 5mm", "날장: 100mm", "전장: 198mm", "원산지: 체코"]}, '
         '{"model": "05340330001", "규격": ["규격: 6mm", "날장: 150mm", "전장: 255mm", "원산지: 체코"]}]}',
     ),
     # 예시 2: 행정/물류 정보가 섞인 페이지 → 물리 규격만 추출, 제조원 명시된 경우
     (
         "URL: https://example.com/product/500-033260\n\n"
+        "URL에서 감지된 모델번호 힌트: (없음)\n\n"
         "[페이지 제목]\nDPU - Device Programmer / Test Unit\n\n"
         "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
         "제조사: Siemens\n"
@@ -78,13 +79,29 @@ FEW_SHOT_EXAMPLES = [
         "원산지: United States of America\n"
         "RoHS: 해당없음\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "DPU - Device Programmer / Test Unit", "제조원": "Siemens", "variants": ['
+        '{"product_name": "DPU - Device Programmer / Test Unit", "manufacturer": "Siemens", "variants": ['
         '{"model": "500-033260", "규격": ["무게: 4.321 lb", "치수: 18.95 x 25.75 x 6.70 IN", "원산지: United States of America"]}]}',
     ),
-    # 예시 3: "제조사:" 라벨 없이 브랜드 표기(대괄호 접두어, "브랜드 상품 모두보기" 문구)만
-    # 있는 오픈마켓 페이지 → 실제 브랜드를 제조원으로, 쇼핑몰 운영사명은 제외.
+    # 예시 3: 제조사 명시 + URL에 모델번호 힌트
+    (
+        "URL: https://www.navimro.com/p/T-8M3-1/\n\n"
+        "URL에서 감지된 모델번호 힌트: T-8M3-1\n\n"
+        "[페이지 제목]\nSwagelok 튜브 피팅 T-8M3-1\n\n"
+        "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
+        "제조사: Swagelok\n"
+        "품번: T-8M3-1\n"
+        "호칭: 8mm 튜브 × 1/4 in. 암나사\n"
+        "재질: 316 스테인리스강\n"
+        "최대 사용 압력: 310 bar\n\n"
+        "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
+        '{"product_name": "Swagelok 튜브 피팅 T-8M3-1", "manufacturer": "Swagelok", "variants": ['
+        '{"model": "T-8M3-1", "규격": ["호칭: 8mm 튜브 × 1/4 in. 암나사", "재질: 316 스테인리스강", "최대 사용 압력: 310 bar"]}]}',
+    ),
+    # 예시 4: "제조사:" 라벨 없이 브랜드 표기(대괄호 접두어, "브랜드 상품 모두보기" 문구)만
+    # 있는 오픈마켓 페이지 → 실제 브랜드를 manufacturer로, 쇼핑몰 운영사명은 제외.
     (
         "URL: https://www.navimro.com/p/K63528032/\n\n"
+        "URL에서 감지된 모델번호 힌트: (없음)\n\n"
         "[페이지 제목]\n쇼트 L렌치 세트 (SB-LWSS7) (SB-, 세신버팔로, K63528032 - 나비엠알오\n\n"
         "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
         "[세신버팔로]\n\n"
@@ -96,7 +113,7 @@ FEW_SHOT_EXAMPLES = [
         "모델명 : SB-LWSS7\n"
         "내용량 : 1SET(7PCS)\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "쇼트 L렌치 세트 (SB-LWSS7)", "제조원": "세신버팔로", "variants": ['
+        '{"product_name": "쇼트 L렌치 세트 (SB-LWSS7)", "manufacturer": "세신버팔로", "variants": ['
         '{"model": "SB-LWSS7", "규격": ["타입: 육각", "세트구성: 1.5, 2, 2.5, 3, 4, 5, 6mm", "원산지: 중국"]}]}',
     ),
 ]
@@ -107,7 +124,7 @@ SYSTEM_PROMPT = (
     "1. 입력된 텍스트(DOM/표/OCR)에 실제로 등장하는 정보만 사용한다. 없는 내용을 지어내지 않는다.\n"
     "2. 결과는 오직 JSON 객체 하나만 출력한다. 설명, 코드블록 표시(```) 등 다른 텍스트는 절대 포함하지 않는다.\n"
     "3. JSON 스키마: "
-    '{"product_name": "string", "제조원": "string", "variants": [{"model": "string", "규격": ["string", ...]}, ...]}\n'
+    '{"product_name": "string", "manufacturer": "string", "variants": [{"model": "string", "규격": ["string", ...]}, ...]}\n'
     "variants는 모델번호 하나당 항목 하나다. 모델번호가 1개이면 variants에 항목이 1개다. "
     "모델번호를 알 수 없으면 model을 빈 문자열(\"\")로 두고 알 수 있는 규격만 담는다.\n"
     "4. product_name은 사이트 이름이나 카테고리명이 아니라 실제 상품명만 담는다. "
@@ -138,6 +155,7 @@ SYSTEM_PROMPT = (
 )
 
 USER_PROMPT_TEMPLATE = """URL: {url}
+URL에서 감지된 모델번호 힌트: {url_model_hint}
 
 [페이지 제목]
 {title}
@@ -152,42 +170,17 @@ USER_PROMPT_TEMPLATE = """URL: {url}
 
 
 def _truncate(text, limit=None):
-    limit = limit or config.OLLAMA_MAX_SOURCE_CHARS
+    limit = limit or config.OPENAI_MAX_SOURCE_CHARS
     text = (text or "").strip()
     if len(text) > limit:
         return text[:limit] + "\n...(생략)"
     return text or "(내용 없음)"
 
 
-def _extract_json_object(raw_text):
-    """모델이 JSON 앞뒤에 잡담을 붙이거나 잘린 경우를 모두 처리한다."""
-    from json_repair import repair_json
-
-    match = re.search(r"\{.*\}", raw_text, re.DOTALL)
-    if match:
-        raw_json = match.group(0)
-        try:
-            return json.loads(raw_json)
-        except json.JSONDecodeError:
-            return json.loads(repair_json(raw_json))
-
-    # JSON이 잘려 닫는 }가 없는 경우 → repair_json으로 복구 시도
-    stripped = raw_text.strip()
-    if stripped.startswith("{"):
-        repaired = repair_json(stripped)
-        if repaired:
-            return json.loads(repaired)
-
-    raise QwenExtractionError(f"응답에서 JSON을 찾지 못함: {raw_text[:200]!r}")
-
-
-_OLLAMA_CONNECT_RETRIES = 3
-_OLLAMA_CONNECT_WAIT = 8  # 초
-
 def call_gpt(messages):
     from openai import OpenAI
     if not config.OPENAI_API_KEY:
-        raise QwenExtractionError("OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
+        raise ExtractionError("OPENAI_API_KEY가 설정되지 않았습니다. .env 파일을 확인하세요.")
     client = OpenAI(api_key=config.OPENAI_API_KEY)
     response = client.chat.completions.create(
         model=config.OPENAI_MODEL,
@@ -198,57 +191,15 @@ def call_gpt(messages):
     )
     content = response.choices[0].message.content
     if not content or not content.strip():
-        raise QwenExtractionError("GPT가 빈 응답을 반환함")
+        raise ExtractionError("GPT가 빈 응답을 반환함")
     return json.loads(content)
 
 
-def call_ollama(messages):
-    import requests
-
-    url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
-    payload = {
-        "model": config.OLLAMA_MODEL,
-        "messages": messages,
-        "format": "json",
-        "stream": False,
-        "think": False,
-        "keep_alive": config.OLLAMA_KEEP_ALIVE,
-        "options": {
-            "temperature": 0,
-            "num_predict": config.OLLAMA_NUM_PREDICT,
-            "num_ctx": 12288,
-        },
-    }
-    for attempt in range(_OLLAMA_CONNECT_RETRIES):
-        try:
-            response = requests.post(url, json=payload, timeout=config.OLLAMA_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            break
-        except requests.exceptions.ConnectionError as error:
-            if attempt < _OLLAMA_CONNECT_RETRIES - 1:
-                print(f"   ⚠️  Ollama 연결 실패, {_OLLAMA_CONNECT_WAIT}초 후 재시도 ({attempt + 1}/{_OLLAMA_CONNECT_RETRIES - 1})...")
-                time.sleep(_OLLAMA_CONNECT_WAIT)
-                continue
-            raise QwenExtractionError(
-                f"Ollama({config.OLLAMA_BASE_URL})에 연결할 수 없습니다. "
-                f"'ollama serve'가 실행 중인지, 모델이 'ollama pull {config.OLLAMA_MODEL}'로 "
-                f"받아져 있는지 확인하세요. 원본 오류: {error}"
-            ) from error
-        except requests.exceptions.Timeout as error:
-            raise QwenExtractionError(f"Ollama 응답 시간 초과({config.OLLAMA_TIMEOUT_SECONDS}초): {error}") from error
-        except requests.exceptions.HTTPError as error:
-            raise QwenExtractionError(f"Ollama 호출 실패({response.status_code}): {response.text[:300]}") from error
-
-    body = response.json()
-    content = body.get("message", {}).get("content", "")
-    if not content.strip():
-        raise QwenExtractionError(f"Ollama가 빈 응답을 반환함: {body}")
-    return _extract_json_object(content)
-
-
 def extract_with_gpt(url, title, context_text, ocr_text):
+    url_model_hint = extract_model_from_url(url) or "(없음)"
     user_prompt = USER_PROMPT_TEMPLATE.format(
         url=url,
+        url_model_hint=url_model_hint,
         title=title or "(제목 없음)",
         context=_truncate(context_text, config.OPENAI_MAX_SOURCE_CHARS),
         ocr=_truncate(ocr_text, config.OPENAI_MAX_SOURCE_CHARS),
@@ -261,7 +212,7 @@ def extract_with_gpt(url, title, context_text, ocr_text):
     result = call_gpt(messages)
 
     if not isinstance(result, dict):
-        raise QwenExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
+        raise ExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
 
     def as_str_list(value):
         if value is None:
@@ -276,7 +227,7 @@ def extract_with_gpt(url, title, context_text, ocr_text):
         return cleaned
 
     product_name = str(result.get("product_name", "")).strip()[:200]
-    manufacturer = str(result.get("제조원", "")).strip()[:100]
+    manufacturer = str(result.get("manufacturer", "")).strip()[:200]
     variants_raw = result.get("variants")
     if isinstance(variants_raw, list) and variants_raw:
         variants = [
@@ -288,69 +239,7 @@ def extract_with_gpt(url, title, context_text, ocr_text):
         specs = as_str_list(result.get("규격"))
         variants = [{"model": m, "규격": specs} for m in models]
 
-    return {"product_name": product_name, "제조원": manufacturer, "variants": variants}
-
-
-def extract_with_qwen(url, title, context_text, ocr_text):
-    user_prompt = USER_PROMPT_TEMPLATE.format(
-        url=url,
-        title=title or "(제목 없음)",
-        context=_truncate(context_text),
-        ocr=_truncate(ocr_text),
-    )
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for ex_user, ex_assistant in FEW_SHOT_EXAMPLES:
-        messages.append({"role": "user", "content": ex_user})
-        messages.append({"role": "assistant", "content": ex_assistant})
-    messages.append({"role": "user", "content": user_prompt})
-    result = call_ollama(messages)
-
-    if not isinstance(result, dict):
-        raise QwenExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
-
-    def as_str_list(value):
-        if value is None:
-            return []
-        if isinstance(value, str):
-            items = [value]
-        elif isinstance(value, list):
-            items = [str(v) for v in value]
-        else:
-            items = [str(value)]
-        cleaned = []
-        seen = set()
-        for item in items:
-            item = item.strip()
-            if not item or item in seen:
-                continue
-            seen.add(item)
-            cleaned.append(item[:150])
-        return cleaned
-
-    product_name = str(result.get("product_name", "")).strip()[:200]
-    manufacturer = str(result.get("제조원", "")).strip()[:100]
-
-    # 새 스키마: variants 배열
-    variants_raw = result.get("variants")
-    if isinstance(variants_raw, list) and variants_raw:
-        variants = []
-        for v in variants_raw:
-            if not isinstance(v, dict):
-                continue
-            model = str(v.get("model", "")).strip()[:200]
-            specs = as_str_list(v.get("규격"))
-            variants.append({"model": model, "규격": specs})
-    else:
-        # 구버전 응답(model + 규격 flat) 호환 처리
-        models = as_str_list(result.get("model")) or [""]
-        specs = as_str_list(result.get("규격"))
-        variants = [{"model": m, "규격": specs} for m in models]
-
-    return {
-        "product_name": product_name,
-        "제조원": manufacturer,
-        "variants": variants,
-    }
+    return {"product_name": product_name, "manufacturer": manufacturer, "variants": variants}
 
 
 # ── 규칙 기반 추출 ────────────────────────────────────────────────────────────
@@ -474,7 +363,7 @@ def find_product_name(metadata, product_dom_text, dom_text, host):
 
 def gather_spec_candidates(product_dom_text, tables, ocr_text):
     """여러 소스에서 label:value 후보를 모아 (category -> [(value, source), ...]) 형태로 반환."""
-    found = {"model": [], "제조원": [], "규격": []}
+    found = {"model": [], "규격": [], "manufacturer": []}
 
     for table in tables:
         for label, value in extract_label_value_from_table(table):
@@ -528,10 +417,10 @@ def build_record_with_rules(url, metadata, host, dom_text, product_dom_text, tab
         if url_model:
             model = [url_model]
 
-    manufacturer_candidates = dedupe_keep_order(candidates["제조원"])
-    manufacturer = manufacturer_candidates[0]["value"] if manufacturer_candidates else ""
-
     specs = [item["value"] for item in dedupe_keep_order(candidates["규격"])]
+    mfr_list = dedupe_keep_order(candidates["manufacturer"])
+    manufacturer = mfr_list[0]["value"] if mfr_list else ""
+
     # 규칙 기반은 모델별 규격 분리가 불가능하므로 모든 모델이 같은 규격을 공유한다.
     if model:
         variants = [{"model": m, "규격": specs} for m in model]
@@ -559,36 +448,13 @@ def build_record_with_gpt(url, metadata, context_text, ocr_text):
     print(f"   🤖 GPT 추출: {url} ({elapsed:.1f}초)")
 
     if not result["product_name"] and not result["variants"]:
-        raise QwenExtractionError(f"GPT가 빈 결과를 반환함: {url}")
+        raise ExtractionError(f"GPT가 빈 결과를 반환함: {url}")
 
     return {
         "URL": url,
         "상태": "captured",
         "상품명": result["product_name"],
-        "제조원": result.get("제조원", ""),
-        "variants": result["variants"],
-    }
-
-
-def build_record_with_qwen(url, metadata, context_text, ocr_text):
-    started = time.perf_counter()
-    result = extract_with_qwen(
-        url=url,
-        title=metadata.get("title", ""),
-        context_text=context_text,
-        ocr_text=ocr_text,
-    )
-    elapsed = time.perf_counter() - started
-    print(f"   🤖 Qwen 추출: {url} ({elapsed:.1f}초)")
-
-    if not result["product_name"] and not result["variants"]:
-        raise QwenExtractionError(f"Qwen이 빈 결과를 반환함: {url}")
-
-    return {
-        "URL": url,
-        "상태": "captured",
-        "상품명": result["product_name"],
-        "제조원": result.get("제조원", ""),
+        "제조원": result.get("manufacturer", ""),
         "variants": result["variants"],
     }
 
@@ -604,6 +470,7 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
             "URL": url,
             "상태": metadata.get("status", "unknown"),
             "상품명": "",
+            "제조원": "",
             "variants": [],
         }
 
@@ -629,11 +496,6 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
             return build_record_with_gpt(url, metadata, context_text, ocr_text)
         except Exception as error:
             print(f"   ⚠️  GPT 추출 실패({error}) → 규칙 기반으로 대체합니다: {url}")
-    elif config.EXTRACTION_ENGINE == "qwen":
-        try:
-            return build_record_with_qwen(url, metadata, context_text, ocr_text)
-        except Exception as error:
-            print(f"   ⚠️  Qwen 추출 실패({error}) → 규칙 기반으로 대체합니다: {url}")
 
     # rules-based 폴백: context_text를 dom_text로 사용 (product_dom은 context 안에 포함)
     started = time.perf_counter()
@@ -662,14 +524,20 @@ def build_summary(crawl_dir, ocr_dir=None, extract_dir=None):
     if not metadata_paths:
         raise FileNotFoundError(f"'{crawl_dir}'에서 metadata.json 파일을 찾을 수 없습니다.")
 
-    # URL별 소요시간 측정
-    records = []
-    url_timings = []  # [(url, elapsed), ...]
-    for path in metadata_paths:
+    # URL별 소요시간 측정 (ThreadPoolExecutor로 병렬 처리)
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _process_one(path):
         t0 = time.perf_counter()
         record = build_product_record(path, crawl_dir, ocr_dir)
-        url_timings.append((record["URL"], time.perf_counter() - t0))
-        records.append(record)
+        return record, time.perf_counter() - t0
+
+    max_workers = min(len(metadata_paths), 5)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        paired = list(executor.map(_process_one, metadata_paths))
+
+    records = [r for r, _ in paired]
+    url_timings = [(r["URL"], t) for r, t in paired]
 
     # 도메인별로 묶어 {domain}.json 파일 저장 + 사이트별 소요시간 집계
     by_domain = {}
