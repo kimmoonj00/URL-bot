@@ -198,7 +198,8 @@ def preprocess_image_for_ocr(path):
 
 async def is_blocked(page):
     try:
-        sample = f"{await page.title()} {await page.locator('body').inner_text(timeout=BLOCKED_CHECK_TIMEOUT_MS)[:1500]}"
+        body_text = await page.locator('body').inner_text(timeout=BLOCKED_CHECK_TIMEOUT_MS)
+        sample = f"{await page.title()} {body_text[:1500]}"
         return bool(BLOCKED_PATTERN.search(sample))
     except Exception:
         return False
