@@ -49,6 +49,7 @@ FEW_SHOT_EXAMPLES = [
     # 예시 1: 다중 variant 테이블 → 모델별 규격 분리 + 라벨 유지
     (
         "URL: https://example.com/driver/\n\n"
+        "URL에서 감지된 모델번호 힌트: (없음)\n\n"
         "[페이지 제목]\n일자 드라이버 (334)\n\n"
         "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
         "## 규격 테이블\n\n"
@@ -57,13 +58,14 @@ FEW_SHOT_EXAMPLES = [
         "| 일자 | 5 | 100 | 198 | 체코 | 05007610001 |\n"
         "| 일자 | 6 | 150 | 255 | 체코 | 05340330001 |\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "일자 드라이버 (334)", "variants": ['
+        '{"product_name": "일자 드라이버 (334)", "manufacturer": "", "variants": ['
         '{"model": "05007610001", "규격": ["규격: 5mm", "날장: 100mm", "전장: 198mm", "원산지: 체코"]}, '
         '{"model": "05340330001", "규격": ["규격: 6mm", "날장: 150mm", "전장: 255mm", "원산지: 체코"]}]}',
     ),
     # 예시 2: 행정/물류 정보가 섞인 페이지 → 물리 규격만 추출
     (
         "URL: https://example.com/product/500-033260\n\n"
+        "URL에서 감지된 모델번호 힌트: (없음)\n\n"
         "[페이지 제목]\nDPU - Device Programmer / Test Unit\n\n"
         "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
         "모델: 500-033260\n"
@@ -76,8 +78,23 @@ FEW_SHOT_EXAMPLES = [
         "원산지: United States of America\n"
         "RoHS: 해당없음\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "DPU - Device Programmer / Test Unit", "variants": ['
+        '{"product_name": "DPU - Device Programmer / Test Unit", "manufacturer": "", "variants": ['
         '{"model": "500-033260", "규격": ["무게: 4.321 lb", "치수: 18.95 x 25.75 x 6.70 IN", "원산지: United States of America"]}]}',
+    ),
+    # 예시 3: 제조사 명시 + URL에 모델번호 힌트
+    (
+        "URL: https://www.navimro.com/p/T-8M3-1/\n\n"
+        "URL에서 감지된 모델번호 힌트: T-8M3-1\n\n"
+        "[페이지 제목]\nSwagelok 튜브 피팅 T-8M3-1\n\n"
+        "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
+        "제조사: Swagelok\n"
+        "품번: T-8M3-1\n"
+        "호칭: 8mm 튜브 × 1/4 in. 암나사\n"
+        "재질: 316 스테인리스강\n"
+        "최대 사용 압력: 310 bar\n\n"
+        "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
+        '{"product_name": "Swagelok 튜브 피팅 T-8M3-1", "manufacturer": "Swagelok", "variants": ['
+        '{"model": "T-8M3-1", "규격": ["호칭: 8mm 튜브 × 1/4 in. 암나사", "재질: 316 스테인리스강", "최대 사용 압력: 310 bar"]}]}',
     ),
 ]
 
@@ -87,9 +104,10 @@ SYSTEM_PROMPT = (
     "1. 입력된 텍스트(DOM/표/OCR)에 실제로 등장하는 정보만 사용한다. 없는 내용을 지어내지 않는다.\n"
     "2. 결과는 오직 JSON 객체 하나만 출력한다. 설명, 코드블록 표시(```) 등 다른 텍스트는 절대 포함하지 않는다.\n"
     "3. JSON 스키마: "
-    '{"product_name": "string", "variants": [{"model": "string", "규격": ["string", ...]}, ...]}\n'
+    '{"product_name": "string", "manufacturer": "string", "variants": [{"model": "string", "규격": ["string", ...]}, ...]}\n'
     "variants는 모델번호 하나당 항목 하나다. 모델번호가 1개이면 variants에 항목이 1개다. "
-    "모델번호를 알 수 없으면 model을 빈 문자열(\"\")로 두고 알 수 있는 규격만 담는다.\n"
+    "모델번호를 알 수 없으면 model을 빈 문자열(\"\")로 두고 알 수 있는 규격만 담는다. "
+    "manufacturer는 제조사·브랜드명이 명시된 경우에만 채운다. 없으면 빈 문자열로 둔다.\n"
     "4. product_name은 사이트 이름이나 카테고리명이 아니라 실제 상품명만 담는다. "
     "느낌표가 들어간 광고 카피, 홍보 문구, 슬로건('~의 혁명', '최저가', '단 하나뿐인' 등)은 "
     "상품명이 아니므로 절대 쓰지 않는다. 카탈로그에 실릴 법한 공식 품명만 담는다.\n"
@@ -109,6 +127,7 @@ SYSTEM_PROMPT = (
 )
 
 USER_PROMPT_TEMPLATE = """URL: {url}
+URL에서 감지된 모델번호 힌트: {url_model_hint}
 
 [페이지 제목]
 {title}
@@ -123,7 +142,7 @@ USER_PROMPT_TEMPLATE = """URL: {url}
 
 
 def _truncate(text, limit=None):
-    limit = limit or config.OLLAMA_MAX_SOURCE_CHARS
+    limit = limit or config.OPENAI_MAX_SOURCE_CHARS
     text = (text or "").strip()
     if len(text) > limit:
         return text[:limit] + "\n...(생략)"
@@ -149,8 +168,10 @@ def call_gpt(messages):
 
 
 def extract_with_gpt(url, title, context_text, ocr_text):
+    url_model_hint = extract_model_from_url(url) or "(없음)"
     user_prompt = USER_PROMPT_TEMPLATE.format(
         url=url,
+        url_model_hint=url_model_hint,
         title=title or "(제목 없음)",
         context=_truncate(context_text, config.OPENAI_MAX_SOURCE_CHARS),
         ocr=_truncate(ocr_text, config.OPENAI_MAX_SOURCE_CHARS),
@@ -178,6 +199,7 @@ def extract_with_gpt(url, title, context_text, ocr_text):
         return cleaned
 
     product_name = str(result.get("product_name", "")).strip()[:200]
+    manufacturer = str(result.get("manufacturer", "")).strip()[:200]
     variants_raw = result.get("variants")
     if isinstance(variants_raw, list) and variants_raw:
         variants = [
@@ -189,7 +211,7 @@ def extract_with_gpt(url, title, context_text, ocr_text):
         specs = as_str_list(result.get("규격"))
         variants = [{"model": m, "규격": specs} for m in models]
 
-    return {"product_name": product_name, "variants": variants}
+    return {"product_name": product_name, "manufacturer": manufacturer, "variants": variants}
 
 
 # ── 규칙 기반 추출 ────────────────────────────────────────────────────────────
@@ -313,7 +335,7 @@ def find_product_name(metadata, product_dom_text, dom_text, host):
 
 def gather_spec_candidates(product_dom_text, tables, ocr_text):
     """여러 소스에서 label:value 후보를 모아 (category -> [(value, source), ...]) 형태로 반환."""
-    found = {"model": [], "규격": []}
+    found = {"model": [], "규격": [], "manufacturer": []}
 
     for table in tables:
         for label, value in extract_label_value_from_table(table):
@@ -368,6 +390,9 @@ def build_record_with_rules(url, metadata, host, dom_text, product_dom_text, tab
             model = [url_model]
 
     specs = [item["value"] for item in dedupe_keep_order(candidates["규격"])]
+    mfr_list = dedupe_keep_order(candidates["manufacturer"])
+    manufacturer = mfr_list[0]["value"] if mfr_list else ""
+
     # 규칙 기반은 모델별 규격 분리가 불가능하므로 모든 모델이 같은 규격을 공유한다.
     if model:
         variants = [{"model": m, "규격": specs} for m in model]
@@ -378,6 +403,7 @@ def build_record_with_rules(url, metadata, host, dom_text, product_dom_text, tab
         "URL": url,
         "상태": "captured",
         "상품명": product_name,
+        "제조원": manufacturer,
         "variants": variants,
     }
 
@@ -400,6 +426,7 @@ def build_record_with_gpt(url, metadata, context_text, ocr_text):
         "URL": url,
         "상태": "captured",
         "상품명": result["product_name"],
+        "제조원": result.get("manufacturer", ""),
         "variants": result["variants"],
     }
 
@@ -415,6 +442,7 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
             "URL": url,
             "상태": metadata.get("status", "unknown"),
             "상품명": "",
+            "제조원": "",
             "variants": [],
         }
 

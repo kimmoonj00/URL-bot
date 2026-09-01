@@ -9,6 +9,7 @@ SPEC_LABEL_KEYWORDS = {
               "part no", "part number", "p/n", "sku", "ordering code", "mlfb", "품목번호"],
     "규격": ["사이즈", "규격", "치수", "크기", "사양", "스펙", "제품사양",
              "size", "dimension", "dimensions", "specification", "spec"],
+    "manufacturer": ["제조사", "제조원", "브랜드", "brand", "manufacturer", "maker", "메이커", "만든곳", "제조"],
 }
 
 SPEC_VALUE_PATTERNS = [
@@ -25,5 +26,5 @@ EXTRACTION_ENGINE = "gpt"
 # 프로젝트 루트의 .env 파일에 OPENAI_API_KEY=sk-... 를 넣어두면 자동으로 읽힙니다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = "gpt-4o-mini"
-OPENAI_MAX_TOKENS = 1500
-OPENAI_MAX_SOURCE_CHARS = 10000
+OPENAI_MAX_TOKENS = 3000
+OPENAI_MAX_SOURCE_CHARS = 20000

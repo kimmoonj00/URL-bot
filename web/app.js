@@ -273,9 +273,11 @@ function renderExtractResults(results) {
         </table>`
       : '<p class="empty-state">추출된 규격 없음</p>';
 
+    const mfr = r['제조원'] ? `<div class="extract-manufacturer">제조원: ${escHtml(r['제조원'])}</div>` : '';
     return `
       <div class="extract-card">
         <div class="extract-product-name">${escHtml(r['상품명'] || '(상품명 없음)')}</div>
+        ${mfr}
         <a class="result-url-link" href="${escHtml(r['URL'])}" target="_blank" rel="noopener">${escHtml(r['URL'])}</a>
         ${variantsHtml}
       </div>
