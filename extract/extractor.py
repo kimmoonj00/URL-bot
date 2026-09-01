@@ -468,14 +468,20 @@ def build_summary(crawl_dir, ocr_dir=None, extract_dir=None):
     if not metadata_paths:
         raise FileNotFoundError(f"'{crawl_dir}'에서 metadata.json 파일을 찾을 수 없습니다.")
 
-    # URL별 소요시간 측정
-    records = []
-    url_timings = []  # [(url, elapsed), ...]
-    for path in metadata_paths:
+    # URL별 소요시간 측정 (ThreadPoolExecutor로 병렬 처리)
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _process_one(path):
         t0 = time.perf_counter()
         record = build_product_record(path, crawl_dir, ocr_dir)
-        url_timings.append((record["URL"], time.perf_counter() - t0))
-        records.append(record)
+        return record, time.perf_counter() - t0
+
+    max_workers = min(len(metadata_paths), 5)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        paired = list(executor.map(_process_one, metadata_paths))
+
+    records = [r for r, _ in paired]
+    url_timings = [(r["URL"], t) for r, t in paired]
 
     # 도메인별로 묶어 {domain}.json 파일 저장 + 사이트별 소요시간 집계
     by_domain = {}

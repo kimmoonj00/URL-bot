@@ -9,7 +9,7 @@ BROWSER_PROFILE_DIR = os.path.join(_DIR, "chrome_profiles", "product_capture")
 URLS_FILE = os.path.join(_DIR, "urls.txt")
 
 # 브라우저 표시 여부 (False: 화면 표시, True: 백그라운드 실행)
-HEADLESS = True
+HEADLESS = False
 
 # 보안 확인 화면이 나타났을 때 열린 Chrome에서 사용자가 정상 확인을 마칠 최대 시간.
 MANUAL_CHALLENGE_WAIT_SECONDS = 20
@@ -26,6 +26,9 @@ WARMUP_URLS = {
 MAX_OCR_ASSETS_PER_PAGE = 60
 MIN_OCR_ASSET_WIDTH = 250
 MIN_OCR_ASSET_HEIGHT = 80
+
+# 동시에 크롤링할 최대 페이지 수 (탭 수). 노트북 기준 2~3이 적절하다.
+MAX_CONCURRENT_PAGES = 3
 
 # 상품 본문 후보 선택자. 앞의 선택자부터 시도하고, 모두 실패하면 전체 화면을 OCR한다.
 PRODUCT_REGION_SELECTORS = {

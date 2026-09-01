@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -8,7 +9,7 @@ from urllib.parse import urlparse
 
 import html2text as _html2text_lib
 
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 _SELF = os.path.dirname(os.path.abspath(__file__))   # crawl/
 _ROOT = os.path.dirname(_SELF)                        # 루트
@@ -45,6 +46,7 @@ from config import (
     IMAGE_UPSCALE_MIN_WIDTH,
     LOAD_STATE_TIMEOUT_MS,
     MANUAL_CHALLENGE_WAIT_SECONDS,
+    MAX_CONCURRENT_PAGES,
     MAX_OCR_ASSETS_PER_PAGE,
     MIN_OCR_ASSET_HEIGHT,
     MIN_OCR_ASSET_WIDTH,
@@ -149,23 +151,22 @@ def safe_name(url):
     return host.replace(".", "_")
 
 
-def setup_resource_blocking(context):
+async def setup_resource_blocking(context):
     """텍스트는 DOM에서 직접 읽고 이미지는 OCR용으로만 필요하므로,
-    렌더링에 불필요한 리소스(동영상, 폰트, 광고/추적 스크립트)는 아예 받지 않는다.
-    -> 페이지당 접속/로딩 시간 단축 + 네트워크 리소스 절감."""
+    렌더링에 불필요한 리소스(동영상, 폰트, 광고/추적 스크립트)는 아예 받지 않는다."""
     if not BLOCK_RESOURCE_TYPES and not BLOCK_URL_KEYWORDS:
         return
 
-    def handle_route(route):
+    async def handle_route(route):
         request = route.request
         if request.resource_type in BLOCK_RESOURCE_TYPES:
-            return route.abort()
+            return await route.abort()
         url = request.url.lower()
         if any(keyword in url for keyword in BLOCK_URL_KEYWORDS):
-            return route.abort()
-        return route.continue_()
+            return await route.abort()
+        return await route.continue_()
 
-    context.route("**/*", handle_route)
+    await context.route("**/*", handle_route)
 
 
 def preprocess_image_for_ocr(path):
@@ -195,80 +196,80 @@ def preprocess_image_for_ocr(path):
         print(f"   이미지 전처리 실패({os.path.basename(path)}): {error}")
 
 
-def is_blocked(page):
+async def is_blocked(page):
     try:
-        sample = f"{page.title()} {page.locator('body').inner_text(timeout=BLOCKED_CHECK_TIMEOUT_MS)[:1500]}"
+        sample = f"{await page.title()} {await page.locator('body').inner_text(timeout=BLOCKED_CHECK_TIMEOUT_MS)[:1500]}"
         return bool(BLOCKED_PATTERN.search(sample))
     except Exception:
         return False
 
 
-def warm_up(page, url):
+async def warm_up(page, url):
     host = urlparse(url).hostname or ""
     warmup = WARMUP_URLS.get(host)
     if not warmup:
         return
     print(f"   워밍업 방문: {warmup}")
     try:
-        page.goto(warmup, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-        wait_for_network_settle(page)
+        await page.goto(warmup, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+        await wait_for_network_settle(page)
     except Exception as error:
         print(f"   워밍업 실패(상세 페이지는 계속 진행): {error}")
 
 
-def wait_for_network_settle(page):
-    """무조건 N초 자는 대신, 네트워크가 먼저 조용해지면 그 즉시 다음 단계로 넘어간다.
-    느린 사이트는 NETWORK_SETTLE_TIMEOUT_MS까지만 기다리고 포기한다(계속 진행)."""
+async def wait_for_network_settle(page):
+    """무조건 N초 자는 대신, 네트워크가 먼저 조용해지면 그 즉시 다음 단계로 넘어간다."""
     try:
-        page.wait_for_load_state("networkidle", timeout=NETWORK_SETTLE_TIMEOUT_MS)
+        await page.wait_for_load_state("networkidle", timeout=NETWORK_SETTLE_TIMEOUT_MS)
     except Exception:
         pass
 
 
-def wait_for_manual_challenge(page):
+async def wait_for_manual_challenge(page):
     """표시 브라우저에서 사용자가 사이트의 정상 확인 절차를 마칠 시간을 준다."""
-    if HEADLESS or not is_blocked(page):
-        return not is_blocked(page)
+    blocked = await is_blocked(page)
+    if HEADLESS or not blocked:
+        return not blocked
 
     print("   보안 확인 화면입니다. 열린 Chrome에서 정상 확인 절차를 완료하세요.")
     deadline = time.time() + MANUAL_CHALLENGE_WAIT_SECONDS
     while time.time() < deadline:
-        page.wait_for_timeout(CHALLENGE_POLL_INTERVAL_MS)
-        if not is_blocked(page):
+        await page.wait_for_timeout(CHALLENGE_POLL_INTERVAL_MS)
+        if not await is_blocked(page):
             print("   보안 확인 완료. 저장된 브라우저 세션을 다음 실행에도 재사용합니다.")
             return True
     return False
 
 
-def dismiss_consent(page):
+async def dismiss_consent(page):
     pattern = re.compile(
         r"accept all|allow all|i agree|got it|모두\s*수락|전체\s*동의|모두\s*동의|동의",
         re.IGNORECASE,
     )
     try:
         candidates = page.get_by_role("button", name=pattern)
-        for index in range(min(candidates.count(), CONSENT_MAX_BUTTONS)):
+        for index in range(min(await candidates.count(), CONSENT_MAX_BUTTONS)):
             button = candidates.nth(index)
-            if button.is_visible(timeout=CONSENT_VISIBLE_TIMEOUT_MS):
-                button.click(timeout=CONSENT_CLICK_TIMEOUT_MS)
-                page.wait_for_timeout(CONSENT_SETTLE_MS)
+            if await button.is_visible(timeout=CONSENT_VISIBLE_TIMEOUT_MS):
+                await button.click(timeout=CONSENT_CLICK_TIMEOUT_MS)
+                await page.wait_for_timeout(CONSENT_SETTLE_MS)
                 return True
     except Exception:
         pass
     return False
 
 
-def expand_details(page):
+async def expand_details(page):
     expanded = 0
     try:
         candidates = page.locator("button, [role=button], summary").filter(has_text=MORE_PATTERN)
-        for index in range(min(candidates.count(), DETAIL_EXPAND_MAX_BUTTONS)):
+        for index in range(min(await candidates.count(), DETAIL_EXPAND_MAX_BUTTONS)):
             target = candidates.nth(index)
             try:
-                if target.is_visible(timeout=DETAIL_EXPAND_VISIBLE_TIMEOUT_MS):
-                    target.click(timeout=DETAIL_EXPAND_CLICK_TIMEOUT_MS)
+                if await target.is_visible(timeout=DETAIL_EXPAND_VISIBLE_TIMEOUT_MS):
+                    await target.click(timeout=DETAIL_EXPAND_CLICK_TIMEOUT_MS)
                     expanded += 1
-                    page.wait_for_timeout(DETAIL_EXPAND_SETTLE_MS)
+                    await page.wait_for_timeout(DETAIL_EXPAND_SETTLE_MS)
             except Exception:
                 continue
     except Exception:
@@ -276,16 +277,16 @@ def expand_details(page):
     return expanded
 
 
-def wake_lazy_content(page):
+async def wake_lazy_content(page):
     previous_height = 0
     stable = 0
     for _ in range(SCROLL_MAX_ATTEMPTS):
         try:
-            height = page.evaluate("document.documentElement.scrollHeight")
-            page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+            height = await page.evaluate("document.documentElement.scrollHeight")
+            await page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
         except Exception:
             break
-        page.wait_for_timeout(SCROLL_WAIT_MS)
+        await page.wait_for_timeout(SCROLL_WAIT_MS)
         if height == previous_height:
             stable += 1
             if stable >= SCROLL_STABLE_ROUNDS:
@@ -294,29 +295,28 @@ def wake_lazy_content(page):
             stable = 0
             previous_height = height
     try:
-        page.evaluate("window.scrollTo(0, 0)")
+        await page.evaluate("window.scrollTo(0, 0)")
     except Exception:
         pass
 
 
-def ensure_tables_ready(page):
+async def ensure_tables_ready(page):
     """스크롤이 멈춘 뒤에도 표가 하나도 안 잡히면, MISUMI 가격표처럼 스크롤 정지 후에야
-    XHR로 늦게 채워지는 표일 수 있다. 표가 이미 있는(대다수) 페이지는 첫 count() 체크에서
-    바로 반환하므로 속도에 영향이 없다."""
+    XHR로 늦게 채워지는 표일 수 있다."""
     try:
-        if page.locator("table").count() > 0:
+        if await page.locator("table").count() > 0:
             return
     except Exception:
         return
 
     for _ in range(TABLE_RETRY_ATTEMPTS):
         try:
-            page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+            await page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
         except Exception:
             break
-        wait_for_network_settle(page)
+        await wait_for_network_settle(page)
         try:
-            page.locator("table").first.wait_for(
+            await page.locator("table").first.wait_for(
                 state="attached", timeout=TABLE_WAIT_TIMEOUT_MS
             )
             break  # 표가 나타났다
@@ -324,13 +324,13 @@ def ensure_tables_ready(page):
             continue  # 아직 없음 -> 다음 재시도
 
     try:
-        page.evaluate("window.scrollTo(0, 0)")
+        await page.evaluate("window.scrollTo(0, 0)")
     except Exception:
         pass
 
 
-def extract_tables(frame):
-    return frame.evaluate(
+async def extract_tables(frame):
+    return await frame.evaluate(
         """() => Array.from(document.querySelectorAll('table')).map((table, tableIndex) => ({
             table_index: tableIndex + 1,
             rows: Array.from(table.querySelectorAll('tr')).map(row =>
@@ -407,20 +407,20 @@ def merge_split_tables(tables):
     return merged
 
 
-def save_page_sources(page):
+async def save_page_sources(page):
     """DOM 텍스트와 테이블을 추출해 (table_count, dom_text, tables)를 반환한다."""
     text_sections = []
     tables = []
     for frame_index, frame in enumerate(page.frames):
         try:
-            frame_text = frame.locator("body").inner_text(timeout=TEXT_EXTRACT_TIMEOUT_MS).strip()
+            frame_text = (await frame.locator("body").inner_text(timeout=TEXT_EXTRACT_TIMEOUT_MS)).strip()
             if frame_text:
                 label = "MAIN" if frame == page.main_frame else f"IFRAME {frame_index}"
                 text_sections.append(f"[{label}]\n{frame_text}")
         except Exception:
             pass
         try:
-            for table in extract_tables(frame):
+            for table in await extract_tables(frame):
                 table["frame_index"] = frame_index
                 tables.append(table)
         except Exception:
@@ -430,10 +430,9 @@ def save_page_sources(page):
     return len(tables), dom_text, tables
 
 
-def capture_ocr_assets(page, prefix, product_selector=None):
+async def capture_ocr_assets(page, prefix, product_selector=None):
     """DOM으로 읽을 수 없는 이미지/Canvas만 개별 저장한다.
-    product_selector가 주어지면 메인 프레임에서 해당 영역 안의 이미지만 스캔한다.
-    batch evaluate로 스캔 비용을 줄이고, 저장 후 색 보정을 적용한다."""
+    product_selector가 주어지면 메인 프레임에서 해당 영역 안의 이미지만 스캔한다."""
     asset_dir = os.path.join(prefix, "assets")
     os.makedirs(asset_dir, exist_ok=True)
     manifest = []
@@ -442,11 +441,10 @@ def capture_ocr_assets(page, prefix, product_selector=None):
     for frame_index, frame in enumerate(page.frames):
         if len(manifest) >= MAX_OCR_ASSETS_PER_PAGE:
             break
-        # 메인 프레임에만 상품 영역 스코프를 적용한다. 아이프레임은 보통 작은
-        # 임베드 콘텐츠라 전체 스캔해도 노이즈가 적다.
+        # 메인 프레임에만 상품 영역 스코프를 적용한다.
         scope = product_selector if frame_index == 0 else None
         try:
-            candidates = frame.evaluate(_SCAN_MEDIA_JS, [MIN_OCR_ASSET_WIDTH, MIN_OCR_ASSET_HEIGHT, scope])
+            candidates = await frame.evaluate(_SCAN_MEDIA_JS, [MIN_OCR_ASSET_WIDTH, MIN_OCR_ASSET_HEIGHT, scope])
         except Exception:
             continue
         if not candidates:
@@ -474,7 +472,7 @@ def capture_ocr_assets(page, prefix, product_selector=None):
             path = os.path.join(asset_dir, filename)
             try:
                 element = elements.nth(item["index"])
-                element.screenshot(
+                await element.screenshot(
                     path=path, animations="disabled", timeout=ELEMENT_SCREENSHOT_TIMEOUT_MS
                 )
             except Exception:
@@ -499,34 +497,26 @@ def capture_ocr_assets(page, prefix, product_selector=None):
     return manifest
 
 
-def get_product_region_html(page, url):
-    """사이트별 상품 본문 영역의 HTML을 반환한다 (context.md 작성용).
-    스크린샷은 찍지 않는다 — 이미지는 assets/ 폴더에 개별 수집한다."""
+async def get_product_region_html(page, url):
+    """사이트별 상품 본문 영역의 HTML을 반환한다 (context.md 작성용)."""
     host = urlparse(url).hostname or ""
     selectors = PRODUCT_REGION_SELECTORS.get(host, ["main"])
     for selector in selectors:
         try:
             region = page.locator(selector).first
-            if not region.is_visible(timeout=PRODUCT_REGION_VISIBLE_TIMEOUT_MS):
+            if not await region.is_visible(timeout=PRODUCT_REGION_VISIBLE_TIMEOUT_MS):
                 continue
-            box = region.bounding_box()
+            box = await region.bounding_box()
             if not box or box["width"] < PRODUCT_REGION_MIN_WIDTH or box["height"] < PRODUCT_REGION_MIN_HEIGHT:
                 continue
-            return selector, region.inner_html(timeout=TEXT_EXTRACT_TIMEOUT_MS)
+            return selector, await region.inner_html(timeout=TEXT_EXTRACT_TIMEOUT_MS)
         except Exception:
             continue
     return None, ""
 
 
 def write_context_md(prefix, title, url, product_html, tables, dom_text):
-    """DOM 텍스트·테이블·상품 영역을 LLM 친화적 Markdown 파일 하나로 통합 저장한다.
-
-    구조:
-      # 제목 / URL
-      ## 상품 영역   ← html2text로 변환한 상품 본문 (메뉴/광고/링크 URL 제거)
-      ## 규격 테이블 ← JS 추출 + MISUMI 머지 → Markdown 파이프 테이블
-      ## 전체 텍스트 ← 보조 참고용, 앞 3000자
-    """
+    """DOM 텍스트·테이블·상품 영역을 LLM 친화적 Markdown 파일 하나로 통합 저장한다."""
     sections = [f"# {title or '(제목 없음)'}\n- URL: {url}"]
 
     if product_html:
@@ -546,29 +536,29 @@ def write_context_md(prefix, title, url, product_html, tables, dom_text):
         output.write("\n\n".join(sections))
 
 
-def capture_one(page, url, index, total, output_dir):
+async def capture_one(page, url, index, total, output_dir):
     # 상품 하나당 전용 폴더({index}_{도메인}/) 하나에 저장한다.
-    # 예: output_dir/1_kr_misumi-ec_com/{context.md, assets/, assets.json, metadata.json}
     name = safe_name(url)
     prefix = os.path.join(output_dir, f"{index}_{name}")
     os.makedirs(prefix, exist_ok=True)
     print(f"\n[{index}/{total}] 접속: {url}")
     started = time.perf_counter()
 
-    warm_up(page, url)
-    page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+    await warm_up(page, url)
+    await page.goto(url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
     try:
-        page.wait_for_load_state("load", timeout=LOAD_STATE_TIMEOUT_MS)
+        await page.wait_for_load_state("load", timeout=LOAD_STATE_TIMEOUT_MS)
     except Exception:
         pass
-    wait_for_network_settle(page)
+    await wait_for_network_settle(page)
 
-    if is_blocked(page) and not wait_for_manual_challenge(page):
+    if await is_blocked(page) and not await wait_for_manual_challenge(page):
         elapsed = time.perf_counter() - started
+        title = await page.title()
         metadata = {
             "url": url,
             "status": "blocked",
-            "title": page.title(),
+            "title": title,
             "elapsed_seconds": round(elapsed, 1),
         }
         with open(os.path.join(prefix, "metadata.json"), "w", encoding="utf-8") as output:
@@ -577,24 +567,25 @@ def capture_one(page, url, index, total, output_dir):
         print(f"   ⏱️  소요 시간: {elapsed:.1f}초")
         return "blocked"
 
-    if dismiss_consent(page):
+    if await dismiss_consent(page):
         print("   쿠키 동의 창을 닫았습니다.")
-    expanded = expand_details(page)
+    expanded = await expand_details(page)
     if expanded:
         print(f"   상세정보 버튼 {expanded}개를 펼쳤습니다.")
-    wake_lazy_content(page)
-    expand_details(page)
-    ensure_tables_ready(page)
+    await wake_lazy_content(page)
+    await expand_details(page)
+    await ensure_tables_ready(page)
 
-    table_count, dom_text, tables = save_page_sources(page)
-    product_selector, product_html = get_product_region_html(page, url)
+    table_count, dom_text, tables = await save_page_sources(page)
+    product_selector, product_html = await get_product_region_html(page, url)
     if product_selector:
         print(f"   상품 영역 감지: {product_selector} → 해당 영역 이미지만 캡처")
-    ocr_assets = capture_ocr_assets(page, prefix, product_selector)
+    ocr_assets = await capture_ocr_assets(page, prefix, product_selector)
 
+    title = await page.title()
     write_context_md(
         prefix=prefix,
-        title=page.title(),
+        title=title,
         url=url,
         product_html=product_html,
         tables=tables,
@@ -605,7 +596,7 @@ def capture_one(page, url, index, total, output_dir):
     metadata = {
         "url": url,
         "status": "captured",
-        "title": page.title(),
+        "title": title,
         "final_url": page.url,
         "table_count": table_count,
         "ocr_asset_count": len(ocr_assets),
@@ -620,7 +611,7 @@ def capture_one(page, url, index, total, output_dir):
     return "captured"
 
 
-def run_capture_bot(run_ocr_and_extract=True, urls=None, output_dir=None):
+async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir=None):
     source = urls if urls is not None else TARGET_URLS
     urls = [
         url for url in source
@@ -642,10 +633,10 @@ def run_capture_bot(run_ocr_and_extract=True, urls=None, output_dir=None):
     print(f"캡처 대상 {len(urls)}개 / 저장 위치: {output_dir}")
 
     pipeline_started = time.perf_counter()
-    results = []
-    with sync_playwright() as playwright:
-        # 실제 Chrome 프로필과 섞지 않는 전용 영구 프로필이다. 정상 로그인/보안 확인 상태만 재사용한다.
-        context = playwright.chromium.launch_persistent_context(
+
+    async with async_playwright() as playwright:
+        # 실제 Chrome 프로필과 섞지 않는 전용 영구 프로필이다.
+        context = await playwright.chromium.launch_persistent_context(
             BROWSER_PROFILE_DIR,
             channel="chrome",
             headless=HEADLESS,
@@ -654,38 +645,54 @@ def run_capture_bot(run_ocr_and_extract=True, urls=None, output_dir=None):
             timezone_id="Asia/Seoul",
             args=["--start-maximized"],
         )
-        setup_resource_blocking(context)
-        try:
-            for index, url in enumerate(urls, 1):
-                page = context.new_page()
+        await setup_resource_blocking(context)
+
+        sem = asyncio.Semaphore(MAX_CONCURRENT_PAGES)
+        total = len(urls)
+
+        async def _capture_task(url, index):
+            async with sem:
+                page = await context.new_page()
                 try:
-                    status = capture_one(page, url, index, len(urls), output_dir)
+                    return await capture_one(page, url, index, total, output_dir)
                 except Exception as error:
-                    status = "error"
                     print(f"   오류: {error}")
                     try:
                         error_dir = os.path.join(output_dir, f"{index}_{safe_name(url)}")
                         os.makedirs(error_dir, exist_ok=True)
-                        page.screenshot(
+                        await page.screenshot(
                             path=os.path.join(error_dir, "error.png"),
                             full_page=True,
                         )
                     except Exception:
                         pass
+                    return "error"
                 finally:
-                    page.close()
-                results.append({"url": url, "status": status})
-        finally:
-            context.close()
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+
+        tasks = [_capture_task(url, i) for i, url in enumerate(urls, 1)]
+        results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+        results_raw = [
+            "error" if isinstance(r, BaseException) else r
+            for r in results_raw
+        ]
+        try:
+            await context.close()
+        except Exception:
+            pass
 
     capture_elapsed = time.perf_counter() - pipeline_started
+    results = [{"url": url, "status": status} for url, status in zip(urls, results_raw)]
+
     with open(os.path.join(output_dir, "capture_summary.json"), "w", encoding="utf-8") as output:
         json.dump(results, output, ensure_ascii=False, indent=2)
     print(f"\n캡처 완료: {output_dir}")
     print(f"⏱️  캡처 전체 소요 시간: {capture_elapsed:.1f}초 (평균 {capture_elapsed / len(urls):.1f}초/건)")
 
     if run_ocr_and_extract:
-        # 캡처가 끝나면 이어서 OCR → 상품명/규격 추출까지 한 번에 수행한다.
         from ocr import paddle_ocr
         from extract import extractor
 
@@ -699,6 +706,14 @@ def run_capture_bot(run_ocr_and_extract=True, urls=None, output_dir=None):
     total_elapsed = time.perf_counter() - pipeline_started
     print(f"⏱️  전체 파이프라인 소요 시간: {total_elapsed:.1f}초")
     return output_dir
+
+
+def run_capture_bot(run_ocr_and_extract=True, urls=None, output_dir=None):
+    return asyncio.run(_run_capture_bot_async(
+        run_ocr_and_extract=run_ocr_and_extract,
+        urls=urls,
+        output_dir=output_dir,
+    ))
 
 
 if __name__ == "__main__":
