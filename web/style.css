@@ -707,6 +707,55 @@ input:focus {
   font-size: 12.5px;
   color: var(--text-muted);
   margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── 소스 범례 ───────────────────────────── */
+
+.source-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.legend-sep {
+  color: var(--border);
+  margin: 0 4px;
+}
+
+/* ── 소스 뱃지 (DOM / OCR) ──────────────── */
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  vertical-align: middle;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.badge-dom {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.badge-ocr {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.spec-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
 }
 
 .extract-table {

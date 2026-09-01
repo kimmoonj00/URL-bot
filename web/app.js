@@ -262,9 +262,29 @@ extractBtn.addEventListener('click', async () => {
   }
 });
 
+function renderSpec(spec) {
+  if (typeof spec === 'string') {
+    return `<div class="spec-row">${escHtml(spec)} <span class="badge badge-dom">DOM</span></div>`;
+  }
+  const text = escHtml(spec.text || '');
+  const src = spec.source === 'ocr' ? 'ocr' : 'dom';
+  return `<div class="spec-row">${text} <span class="badge badge-${src}">${src.toUpperCase()}</span></div>`;
+}
+
+function sourceBadge(source) {
+  const s = source === 'ocr' ? 'ocr' : 'dom';
+  return `<span class="badge badge-${s}">${s.toUpperCase()}</span>`;
+}
+
 function renderExtractResults(results) {
   extractResultSection.hidden = false;
-  extractResultContent.innerHTML = results.map(r => {
+  const legend = `
+    <div class="source-legend">
+      <span class="badge badge-dom">DOM</span> HTML 구조·표에서 추출
+      <span class="legend-sep">·</span>
+      <span class="badge badge-ocr">OCR</span> 이미지 인식 — 오탈자 가능성 있음
+    </div>`;
+  extractResultContent.innerHTML = legend + results.map(r => {
     const variants = r['variants'] || [];
     const variantsHtml = variants.length
       ? `<table class="extract-table">
@@ -272,8 +292,8 @@ function renderExtractResults(results) {
           <tbody>
             ${variants.map(v => `
               <tr>
-                <td class="model-cell">${escHtml(v.model || '—')}</td>
-                <td>${(v['규격'] || []).map(s => `<div>${escHtml(s)}</div>`).join('')}</td>
+                <td class="model-cell">${escHtml(v.model || '—')} ${v.model_source ? sourceBadge(v.model_source) : ''}</td>
+                <td>${(v['규격'] || []).map(renderSpec).join('')}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -281,11 +301,12 @@ function renderExtractResults(results) {
       : '<p class="empty-state">추출된 규격 없음</p>';
 
     const manufacturer = r['제조원'];
+    const mfrSource = r['제조원_source'] || 'dom';
 
     return `
       <div class="extract-card">
         <div class="extract-product-name">${escHtml(r['상품명'] || '(상품명 없음)')}</div>
-        ${manufacturer ? `<div class="extract-manufacturer">제조원: ${escHtml(manufacturer)}</div>` : ''}
+        ${manufacturer ? `<div class="extract-manufacturer">제조원: ${escHtml(manufacturer)} ${sourceBadge(mfrSource)}</div>` : ''}
         <a class="result-url-link" href="${escHtml(r['URL'])}" target="_blank" rel="noopener">${escHtml(r['URL'])}</a>
         ${variantsHtml}
       </div>

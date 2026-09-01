@@ -58,9 +58,9 @@ FEW_SHOT_EXAMPLES = [
         "| 일자 | 5 | 100 | 198 | 체코 | 05007610001 |\n"
         "| 일자 | 6 | 150 | 255 | 체코 | 05340330001 |\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "일자 드라이버 (334)", "manufacturer": "", "variants": ['
-        '{"model": "05007610001", "규격": ["규격: 5mm", "날장: 100mm", "전장: 198mm", "원산지: 체코"]}, '
-        '{"model": "05340330001", "규격": ["규격: 6mm", "날장: 150mm", "전장: 255mm", "원산지: 체코"]}]}',
+        '{"product_name": "일자 드라이버 (334)", "manufacturer": "", "manufacturer_source": "dom", "variants": ['
+        '{"model": "05007610001", "model_source": "dom", "규격": [{"text": "규격: 5mm", "source": "dom"}, {"text": "날장: 100mm", "source": "dom"}, {"text": "전장: 198mm", "source": "dom"}, {"text": "원산지: 체코", "source": "dom"}]}, '
+        '{"model": "05340330001", "model_source": "dom", "규격": [{"text": "규격: 6mm", "source": "dom"}, {"text": "날장: 150mm", "source": "dom"}, {"text": "전장: 255mm", "source": "dom"}, {"text": "원산지: 체코", "source": "dom"}]}]}',
     ),
     # 예시 2: 행정/물류 정보가 섞인 페이지 → 물리 규격만 추출, 제조원 명시된 경우
     (
@@ -79,8 +79,8 @@ FEW_SHOT_EXAMPLES = [
         "원산지: United States of America\n"
         "RoHS: 해당없음\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "DPU - Device Programmer / Test Unit", "manufacturer": "Siemens", "variants": ['
-        '{"model": "500-033260", "규격": ["무게: 4.321 lb", "치수: 18.95 x 25.75 x 6.70 IN", "원산지: United States of America"]}]}',
+        '{"product_name": "DPU - Device Programmer / Test Unit", "manufacturer": "Siemens", "manufacturer_source": "dom", "variants": ['
+        '{"model": "500-033260", "model_source": "dom", "규격": [{"text": "무게: 4.321 lb", "source": "dom"}, {"text": "치수: 18.95 x 25.75 x 6.70 IN", "source": "dom"}, {"text": "원산지: United States of America", "source": "dom"}]}]}',
     ),
     # 예시 3: 제조사 명시 + URL에 모델번호 힌트
     (
@@ -94,8 +94,8 @@ FEW_SHOT_EXAMPLES = [
         "재질: 316 스테인리스강\n"
         "최대 사용 압력: 310 bar\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "Swagelok 튜브 피팅 T-8M3-1", "manufacturer": "Swagelok", "variants": ['
-        '{"model": "T-8M3-1", "규격": ["호칭: 8mm 튜브 × 1/4 in. 암나사", "재질: 316 스테인리스강", "최대 사용 압력: 310 bar"]}]}',
+        '{"product_name": "Swagelok 튜브 피팅 T-8M3-1", "manufacturer": "Swagelok", "manufacturer_source": "dom", "variants": ['
+        '{"model": "T-8M3-1", "model_source": "dom", "규격": [{"text": "호칭: 8mm 튜브 × 1/4 in. 암나사", "source": "dom"}, {"text": "재질: 316 스테인리스강", "source": "dom"}, {"text": "최대 사용 압력: 310 bar", "source": "dom"}]}]}',
     ),
     # 예시 4: "제조사:" 라벨 없이 브랜드 표기(대괄호 접두어, "브랜드 상품 모두보기" 문구)만
     # 있는 오픈마켓 페이지 → 실제 브랜드를 manufacturer로, 쇼핑몰 운영사명은 제외.
@@ -113,8 +113,28 @@ FEW_SHOT_EXAMPLES = [
         "모델명 : SB-LWSS7\n"
         "내용량 : 1SET(7PCS)\n\n"
         "[이미지 OCR 텍스트]\n(내용 없음)\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
-        '{"product_name": "쇼트 L렌치 세트 (SB-LWSS7)", "manufacturer": "세신버팔로", "variants": ['
-        '{"model": "SB-LWSS7", "규격": ["타입: 육각", "세트구성: 1.5, 2, 2.5, 3, 4, 5, 6mm", "원산지: 중국"]}]}',
+        '{"product_name": "쇼트 L렌치 세트 (SB-LWSS7)", "manufacturer": "세신버팔로", "manufacturer_source": "dom", "variants": ['
+        '{"model": "SB-LWSS7", "model_source": "dom", "규격": [{"text": "타입: 육각", "source": "dom"}, {"text": "세트구성: 1.5, 2, 2.5, 3, 4, 5, 6mm", "source": "dom"}, {"text": "원산지: 중국", "source": "dom"}]}]}',
+    ),
+    # 예시 5: OCR 이미지에서 추가 규격이 나오는 경우 → source를 "ocr"로 표기
+    (
+        "URL: https://example.com/product/ABC-100\n\n"
+        "URL에서 감지된 모델번호 힌트: ABC-100\n\n"
+        "[페이지 제목]\nABC-100 산업용 압력계\n\n"
+        "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
+        "모델: ABC-100\n"
+        "측정범위: 0~10 bar\n"
+        "연결규격: 1/4\" NPT\n\n"
+        "[이미지 OCR 텍스트]\n"
+        "ABC-100\n"
+        "MAX 10 bar\n"
+        "정밀도 ±1.5%FS\n"
+        "IP65\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
+        '{"product_name": "ABC-100 산업용 압력계", "manufacturer": "", "manufacturer_source": "dom", "variants": ['
+        '{"model": "ABC-100", "model_source": "dom", "규격": [{"text": "측정범위: 0~10 bar", "source": "dom"}, '
+        '{"text": "연결규격: 1/4\\" NPT", "source": "dom"}, '
+        '{"text": "정밀도: ±1.5%FS", "source": "ocr"}, '
+        '{"text": "IP65", "source": "ocr"}]}]}',
     ),
 ]
 
@@ -124,9 +144,14 @@ SYSTEM_PROMPT = (
     "1. 입력된 텍스트(DOM/표/OCR)에 실제로 등장하는 정보만 사용한다. 없는 내용을 지어내지 않는다.\n"
     "2. 결과는 오직 JSON 객체 하나만 출력한다. 설명, 코드블록 표시(```) 등 다른 텍스트는 절대 포함하지 않는다.\n"
     "3. JSON 스키마: "
-    '{"product_name": "string", "manufacturer": "string", "variants": [{"model": "string", "규격": ["string", ...]}, ...]}\n'
+    '{"product_name": "string", "manufacturer": "string", "manufacturer_source": "dom"|"ocr", '
+    '"variants": [{"model": "string", "model_source": "dom"|"ocr", "규격": [{"text": "string", "source": "dom"|"ocr"}, ...]}, ...]}\n'
     "variants는 모델번호 하나당 항목 하나다. 모델번호가 1개이면 variants에 항목이 1개다. "
     "모델번호를 알 수 없으면 model을 빈 문자열(\"\")로 두고 알 수 있는 규격만 담는다.\n"
+    "3-1. source 규칙: model_source, 각 규격 항목의 source, manufacturer_source 모두 "
+    "해당 정보가 '[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]' 섹션에서 왔으면 'dom', "
+    "'[이미지 OCR 텍스트]' 섹션에서 왔으면 'ocr'로 표기한다. "
+    "두 섹션 모두에 없거나 판단이 애매하면 'dom'으로 둔다.\n"
     "4. product_name은 사이트 이름이나 카테고리명이 아니라 실제 상품명만 담는다. "
     "느낌표가 들어간 광고 카피, 홍보 문구, 슬로건('~의 혁명', '최저가', '단 하나뿐인' 등)은 "
     "상품명이 아니므로 절대 쓰지 않는다. 카탈로그에 실릴 법한 공식 품명만 담는다.\n"
@@ -214,32 +239,53 @@ def extract_with_gpt(url, title, context_text, ocr_text):
     if not isinstance(result, dict):
         raise ExtractionError(f"JSON 객체가 아닌 응답: {result!r}")
 
-    def as_str_list(value):
+    def as_spec_list(value):
         if value is None:
             return []
-        items = [value] if isinstance(value, str) else [str(v) for v in value] if isinstance(value, list) else [str(value)]
+        items = [value] if isinstance(value, (str, dict)) else list(value) if isinstance(value, list) else [str(value)]
         cleaned, seen = [], set()
         for item in items:
-            item = item.strip()
-            if item and item not in seen:
-                seen.add(item)
-                cleaned.append(item[:150])
+            if isinstance(item, dict):
+                text = str(item.get("text", "")).strip()
+                source = item.get("source", "dom")
+            else:
+                text = str(item).strip()
+                source = "dom"
+            if source not in ("dom", "ocr"):
+                source = "dom"
+            if text and text not in seen:
+                seen.add(text)
+                cleaned.append({"text": text[:150], "source": source})
         return cleaned
+
+    def as_str_list(value):
+        specs = as_spec_list(value)
+        return [s["text"] for s in specs]
 
     product_name = str(result.get("product_name", "")).strip()[:200]
     manufacturer = str(result.get("manufacturer", "")).strip()[:200]
+    manufacturer_source = result.get("manufacturer_source", "dom")
+    if manufacturer_source not in ("dom", "ocr"):
+        manufacturer_source = "dom"
     variants_raw = result.get("variants")
+    def clean_source(val):
+        return val if val in ("dom", "ocr") else "dom"
+
     if isinstance(variants_raw, list) and variants_raw:
         variants = [
-            {"model": str(v.get("model", "")).strip()[:200], "규격": as_str_list(v.get("규격"))}
+            {
+                "model": str(v.get("model", "")).strip()[:200],
+                "model_source": clean_source(v.get("model_source", "dom")),
+                "규격": as_spec_list(v.get("규격")),
+            }
             for v in variants_raw if isinstance(v, dict)
         ]
     else:
         models = as_str_list(result.get("model")) or [""]
-        specs = as_str_list(result.get("규격"))
-        variants = [{"model": m, "규격": specs} for m in models]
+        specs = as_spec_list(result.get("규격"))
+        variants = [{"model": m, "model_source": "dom", "규격": specs} for m in models]
 
-    return {"product_name": product_name, "manufacturer": manufacturer, "variants": variants}
+    return {"product_name": product_name, "manufacturer": manufacturer, "manufacturer_source": manufacturer_source, "variants": variants}
 
 
 # ── 규칙 기반 추출 ────────────────────────────────────────────────────────────
@@ -411,27 +457,36 @@ def build_record_with_rules(url, metadata, host, dom_text, product_dom_text, tab
     product_name, _name_source = find_product_name(metadata, product_dom_text, dom_text, host)
     candidates = gather_spec_candidates(product_dom_text, tables, ocr_text)
 
-    model = [item["value"] for item in dedupe_keep_order(candidates["model"])]
-    if not model:
+    model_items = dedupe_keep_order(candidates["model"])
+    if not model_items:
         url_model = extract_model_from_url(url)
         if url_model:
-            model = [url_model]
+            model_items = [{"value": url_model, "source": "dom"}]
 
-    specs = [item["value"] for item in dedupe_keep_order(candidates["규격"])]
+    spec_items = dedupe_keep_order(candidates["규격"])
+    specs = [
+        {"text": item["value"], "source": "ocr" if item["source"] == "ocr" else "dom"}
+        for item in spec_items
+    ]
     mfr_list = dedupe_keep_order(candidates["manufacturer"])
     manufacturer = mfr_list[0]["value"] if mfr_list else ""
+    manufacturer_source = "ocr" if mfr_list and mfr_list[0]["source"] == "ocr" else "dom"
 
     # 규칙 기반은 모델별 규격 분리가 불가능하므로 모든 모델이 같은 규격을 공유한다.
-    if model:
-        variants = [{"model": m, "규격": specs} for m in model]
+    if model_items:
+        variants = [
+            {"model": m["value"], "model_source": "ocr" if m["source"] == "ocr" else "dom", "규격": specs}
+            for m in model_items
+        ]
     else:
-        variants = [{"model": "", "규격": specs}]
+        variants = [{"model": "", "model_source": "dom", "규격": specs}]
 
     return {
         "URL": url,
         "상태": "captured",
         "상품명": product_name,
         "제조원": manufacturer,
+        "제조원_source": manufacturer_source,
         "variants": variants,
     }
 
@@ -455,6 +510,7 @@ def build_record_with_gpt(url, metadata, context_text, ocr_text):
         "상태": "captured",
         "상품명": result["product_name"],
         "제조원": result.get("manufacturer", ""),
+        "제조원_source": result.get("manufacturer_source", "dom"),
         "variants": result["variants"],
     }
 
@@ -483,13 +539,16 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
         context_text = "\n\n".join(filter(None, [product_dom, tables_txt, dom_txt[:2000]]))
 
     # ocr 단계가 완료됐으면 context.md + OCR을 합친 product.md가 있다.
-    # 있으면 그걸 통째로 쓰고, 없으면 crawl context.md만 쓴다.
+    # 있으면 DOM 섹션과 OCR 섹션을 분리해서 각각 context/ocr로 전달한다.
+    # GPT가 source 필드(dom/ocr)를 정확히 구분하려면 두 섹션이 명확히 분리돼야 한다.
     ocr_text = ""
     if ocr_dir:
         rel = os.path.relpath(crawl_prefix, crawl_dir)
         product_md = _read_text(os.path.join(ocr_dir, rel, "product.md"))
         if product_md:
-            context_text = product_md  # context + OCR 통합본
+            parts = product_md.split("\n## 이미지 OCR", 1)
+            context_text = parts[0].strip()
+            ocr_text = parts[1].strip() if len(parts) > 1 else ""
 
     if config.EXTRACTION_ENGINE == "gpt":
         try:
