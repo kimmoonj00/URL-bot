@@ -1,9 +1,12 @@
 import asyncio
+import base64
 import json
 import os
 import re
+import ssl
 import sys
 import time
+import urllib.request
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -479,10 +482,63 @@ async def capture_ocr_assets(page, prefix, product_selector=None):
             filename = f"asset_{len(manifest) + 1:03d}_{item['tag']}.png"
             path = os.path.join(asset_dir, filename)
             try:
-                element = elements.nth(item["index"])
-                await element.screenshot(
-                    path=path, animations="disabled", timeout=ELEMENT_SCREENSHOT_TIMEOUT_MS
-                )
+                # <img>는 브라우저 내부 fetch로 원본 다운로드 — element.screenshot()은
+                # CSS overflow:hidden 등으로 이미지 상단이 잘릴 수 있다.
+                # data:/blob: URL 또는 다운로드 실패 시 element.screenshot()으로 폴백.
+                src = item.get("src", "")
+                downloaded = False
+                if item["tag"] == "img" and src and not src.startswith(("data:", "blob:")):
+                    try:
+                        b64 = await page.evaluate(
+                            """async (src) => {
+                                try {
+                                    const r = await fetch(src, {credentials: 'include'});
+                                    if (!r.ok) return null;
+                                    const blob = await r.blob();
+                                    return await new Promise(res => {
+                                        const rd = new FileReader();
+                                        rd.onloadend = () => res(rd.result);
+                                        rd.readAsDataURL(blob);
+                                    });
+                                } catch (_) { return null; }
+                            }""",
+                            src,
+                        )
+                        if b64 and isinstance(b64, str) and "," in b64:
+                            raw = base64.b64decode(b64.split(",", 1)[1])
+                            with open(path, "wb") as f:
+                                f.write(raw)
+                            downloaded = True
+                            print(f"   [fetch OK] {src[:80]} → {len(raw)//1024}KB")
+                        else:
+                            print(f"   [fetch FAIL] b64={type(b64)} src={src[:80]}")
+                    except Exception as _e:
+                        print(f"   [fetch ERR] ({src[:60]}): {_e}")
+                # CORS·SSL 오류로 브라우저 fetch 실패 시 Python urllib로 재시도
+                if not downloaded and item["tag"] == "img" and src and not src.startswith(("data:", "blob:")):
+                    try:
+                        _ssl_ctx = ssl.create_default_context()
+                        _ssl_ctx.check_hostname = False
+                        _ssl_ctx.verify_mode = ssl.CERT_NONE
+                        _req = urllib.request.Request(src, headers={
+                            "Referer": page.url,
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        })
+                        def _fetch_sync():
+                            with urllib.request.urlopen(_req, context=_ssl_ctx, timeout=30) as r:
+                                return r.read()
+                        raw = await asyncio.get_event_loop().run_in_executor(None, _fetch_sync)
+                        with open(path, "wb") as f:
+                            f.write(raw)
+                        downloaded = True
+                        print(f"   [urllib OK] {src[:80]} → {len(raw)//1024}KB")
+                    except Exception as _e:
+                        print(f"   [urllib ERR] ({src[:60]}): {_e}")
+                if not downloaded:
+                    element = elements.nth(item["index"])
+                    await element.screenshot(
+                        path=path, animations="disabled", timeout=ELEMENT_SCREENSHOT_TIMEOUT_MS
+                    )
             except Exception:
                 continue
 

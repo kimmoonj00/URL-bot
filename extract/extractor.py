@@ -136,6 +136,46 @@ FEW_SHOT_EXAMPLES = [
         '{"text": "정밀도: ±1.5%FS", "source": "ocr"}, '
         '{"text": "IP65", "source": "ocr"}]}]}',
     ),
+    # 예시 6: OCR에서 탭(\t) 구분 다열 표 → 헤더를 라벨로, 각 데이터 행을 별도 variant로
+    (
+        "URL: https://www.navimro.com/p/hex-socket/\n\n"
+        "URL에서 감지된 모델번호 힌트: (없음)\n\n"
+        "[페이지 제목]\n육각 소켓 렌치 세트\n\n"
+        "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
+        "브랜드: STANLEY\n\n"
+        "[이미지 OCR 텍스트]\n"
+        "모델번호\t규격\t드라이브\t전장(mm)\n"
+        "87-765\tM5×20\t1/4\"\t45\n"
+        "87-766\tM6×25\t1/4\"\t50\n"
+        "87-767\tM8×30\t3/8\"\t60\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
+        '{"product_name": "육각 소켓 렌치 세트", "manufacturer": "STANLEY", "manufacturer_source": "dom", "variants": ['
+        '{"model": "87-765", "model_source": "ocr", "규격": [{"text": "규격: M5×20", "source": "ocr"}, {"text": "드라이브: 1/4\\"", "source": "ocr"}, {"text": "전장: 45mm", "source": "ocr"}]}, '
+        '{"model": "87-766", "model_source": "ocr", "규격": [{"text": "규격: M6×25", "source": "ocr"}, {"text": "드라이브: 1/4\\"", "source": "ocr"}, {"text": "전장: 50mm", "source": "ocr"}]}, '
+        '{"model": "87-767", "model_source": "ocr", "규격": [{"text": "규격: M8×30", "source": "ocr"}, {"text": "드라이브: 3/8\\"", "source": "ocr"}, {"text": "전장: 60mm", "source": "ocr"}]}]}',
+    ),
+    # 예시 7: OCR에서 "상품명 모델코드" 한 줄 형태 → 코드를 모델번호로 추출
+    (
+        "URL: https://www.navimro.com/g/1810973/\n\n"
+        "URL에서 감지된 모델번호 힌트: (없음)\n\n"
+        "[페이지 제목]\n케이블 절단기\n\n"
+        "[페이지 컨텍스트 (상품 영역 · 규격 테이블 · 전체 텍스트)]\n"
+        "브랜드: 세인티에프\n"
+        "절단능력(mm²): 240\n"
+        "전장(mm): 260\n"
+        "원산지: 중국\n"
+        "내용량: 1EA\n\n"
+        "[이미지 OCR 텍스트]\n"
+        "SCINTF\n"
+        "(주)세인티에프\n"
+        "케이블 절단기 ST-325\n"
+        "최대 절단 굵기: 240mm²\n"
+        "재질: 급힘 변형이 없는 고탄소강\n"
+        "사이즈: 가로 145 × 세로 260mm\n\n위 정보를 바탕으로 JSON 하나만 출력해.",
+        '{"product_name": "케이블 절단기", "manufacturer": "세인티에프", "manufacturer_source": "dom", "variants": ['
+        '{"model": "ST-325", "model_source": "ocr", "규격": [{"text": "절단능력: 240mm²", "source": "dom"}, '
+        '{"text": "전장: 260mm", "source": "dom"}, {"text": "원산지: 중국", "source": "dom"}, '
+        '{"text": "재질: 급힘 변형이 없는 고탄소강", "source": "ocr"}]}]}',
+    ),
 ]
 
 SYSTEM_PROMPT = (
@@ -167,16 +207,23 @@ SYSTEM_PROMPT = (
     "5. 각 variant의 model에는 그 변형의 모델번호/형번/품번만 담는다. "
     "페이지에 여러 옵션이 표로 나열되어 있으면 각 행(옵션)마다 variant 항목을 하나씩 만들고 "
     "그 행에만 해당하는 규격을 해당 variant의 규격 배열에 담는다. "
-    "또한 product_name에 영문·숫자·하이픈·슬래시 조합의 코드(예: EQwear-EV3, MSFG-24/42-50/60-OD)가 "
-    "포함되어 있으면 그 코드를 variants[0].model에도 반드시 포함한다. "
-    "단, product_name에서 그 코드를 제거하지 않는다. product_name은 원래 표현을 그대로 유지한다.\n"
+    "또한 product_name 또는 OCR 텍스트에 영문·숫자·하이픈·슬래시 조합의 코드(예: EQwear-EV3, ST-325, MSFG-24/42-50/60-OD)가 "
+    "포함되어 있으면 그 코드를 variants[0].model 후보로 적극 검토한다. "
+    "특히 OCR 텍스트에서 '상품명 모델코드' 형태로 한 줄에 나타나는 경우(예: '케이블 절단기 ST-325')에는 "
+    "뒤의 코드가 모델번호일 가능성이 높으므로 적극적으로 추출한다. "
+    "단, 수량·단위를 나타내는 코드(예: '20PCS', '3SET', '1EA'), 광고 슬로건의 일부, "
+    "내부 주문코드·바코드는 모델번호가 아니다. 확실하지 않으면 rule 8을 따른다. "
+    "product_name에서 코드를 제거하지 않는다. product_name은 원래 표현을 그대로 유지한다.\n"
     "6. 각 variant의 규격에는 그 모델번호에만 해당하는 치수·크기·전압·전류·압력·온도·무게·재질·"
     "보호등급·호칭·색상·등급 등 물리적·기술적 특성을 담는다. "
     "통관코드, 수출통제 코드(ECCN/AL), 라이프사이클 상태, 내부 제품군 코드, 출하 소요일 등 행정적·물류적 정보는 제외한다. "
     "이미 조합 형식(예: 0.8×5.0×100mm)으로 표현된 값이 있으면 그 조합을 이루는 개별 수치(0.8mm, 5.0mm, 100mm)는 따로 추가하지 않는다.\n"
     "7. 각 variant의 model과 규격 항목은 그 상품을 직접 설명하는 단독 값이어야 한다. "
     "페이지 UI 버튼·메뉴 텍스트, 다른 상품과의 비교 목록, 탐색용 링크 텍스트는 상품 속성이 아니므로 절대 포함하지 않는다.\n"
-    "8. 확실하지 않으면 해당 필드를 빈 문자열이나 빈 배열([])로 둔다. 애매하면 지어내지 말고 비워둬라."
+    "8. DOM 섹션 정보는 확실하지 않으면 빈 문자열이나 빈 배열([])로 둔다. 지어내지 말고 비워둬라. "
+    "단, OCR 섹션 정보는 후보가 보이면 적극 추출한다 — OCR 뱃지가 이미 오탈자 가능성을 사용자에게 알려주므로, "
+    "빈 값보다 후보값이 낫다. OCR에서 모델번호처럼 생긴 코드(영숫자·하이픈·슬래시 조합 등)나 규격값이 보이면 "
+    "확신이 없어도 넣어라."
 )
 
 USER_PROMPT_TEMPLATE = """URL: {url}
@@ -284,6 +331,17 @@ def extract_with_gpt(url, title, context_text, ocr_text):
         models = as_str_list(result.get("model")) or [""]
         specs = as_spec_list(result.get("규격"))
         variants = [{"model": m, "model_source": "dom", "규격": specs} for m in models]
+
+    # OCR source로 태깅됐어도 DOM 텍스트에 동일 값이 존재하면 dom이 더 신뢰도 높으므로 덮어쓴다.
+    ctx_lower = context_text.lower() if context_text else ""
+    if manufacturer_source == "ocr" and manufacturer and manufacturer.lower() in ctx_lower:
+        manufacturer_source = "dom"
+    for v in variants:
+        if v.get("model_source") == "ocr" and v.get("model") and v["model"].lower() in ctx_lower:
+            v["model_source"] = "dom"
+        for spec in v.get("규격", []):
+            if spec.get("source") == "ocr" and spec.get("text") and spec["text"].lower() in ctx_lower:
+                spec["source"] = "dom"
 
     return {"product_name": product_name, "manufacturer": manufacturer, "manufacturer_source": manufacturer_source, "variants": variants}
 

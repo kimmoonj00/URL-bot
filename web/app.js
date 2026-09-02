@@ -292,7 +292,7 @@ function renderExtractResults(results) {
           <tbody>
             ${variants.map(v => `
               <tr>
-                <td class="model-cell">${escHtml(v.model || '—')} ${v.model_source ? sourceBadge(v.model_source) : ''}</td>
+                <td class="model-cell">${escHtml(v.model || '—')} ${v.model && v.model_source ? sourceBadge(v.model_source) : ''}</td>
                 <td>${(v['규격'] || []).map(renderSpec).join('')}</td>
               </tr>
             `).join('')}
