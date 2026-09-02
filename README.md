@@ -286,32 +286,6 @@ python extract/extractor.py  # 3단계: 추출
 > Slack 앱을 설치하면 브라우저 없이 슬랙에서 바로 URL을 입력하고 결과를 받을 수 있습니다.  
 > Socket Mode로 동작하므로 외부 서버 없이 로컬에서 실행됩니다.
 
-### Slack 앱 설정
-
-1. [api.slack.com/apps](https://api.slack.com/apps) 에서 새 앱을 만들고 워크스페이스에 설치합니다.
-2. **OAuth & Permissions > Bot Token Scopes**에 아래 권한을 추가합니다:
-
-   | Scope | 용도 |
-   |---|---|
-   | `app_mentions:read` | 멘션 수신 |
-   | `chat:write` | DM 전송 |
-   | `im:write` | DM 채널 열기 |
-   | `im:read` | DM 채널 조회 |
-
-3. **Socket Mode**를 활성화하고 App-Level Token(`xapp-...`)을 발급합니다.
-4. **App Home > Show Tabs**에서 **Home Tab**을 켭니다.
-5. **Event Subscriptions > Subscribe to bot events**에 `app_home_opened`를 추가합니다.
-6. **Interactivity & Shortcuts**를 활성화합니다 (모달·버튼 동작에 필요).
-
-### 환경 변수
-
-`.env`에 아래 두 줄을 추가합니다:
-
-```
-SLACK_BOT_TOKEN=xoxb-...   # OAuth & Permissions > Bot User OAuth Token
-SLACK_APP_TOKEN=xapp-...   # Basic Information > App-Level Tokens
-```
-
 ### 실행
 
 ```bash
@@ -328,16 +302,14 @@ URL 입력 모달 (여러 URL, OCR 옵션)
         │
         ▼
 백그라운드 실행: 크롤링 (→ OCR)
-        │  완료 시 App Home 상태 업데이트
+        │
         ▼
 DM: ✅ 크롤링 완료 + [📊 Extract 실행] 버튼
         │
         ▼
-DM: 상품명 / 제조원 / 모델번호 / 규격 (출처 뱃지 포함)
+DM: 상품명 / 제조원 / 모델번호 / 규격 (표 형식)
 ```
 
 ### 주의사항
 
-- 슬랙봇은 크롤링 결과를 서버 메모리(`user_jobs`)에 임시 저장합니다. 봇을 재시작하면 이전 작업 결과가 사라집니다.
-- 한 사용자가 동시에 하나의 작업만 유지됩니다. 작업 중 새 작업을 시작하면 이전 결과를 덮어씁니다.
-- 모델 10개를 초과하는 경우 DM에는 상위 10개만 표시됩니다.
+- 모델 15개를 초과하는 경우 DM에는 상위 15개만 표시됩니다.
