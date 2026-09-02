@@ -14,6 +14,7 @@
 6. [주요 설정](#6-주요-설정)
 7. [지원 사이트](#7-지원-사이트)
 8. [성능 측정](#8-성능-측정)
+9. [슬랙봇](#9-슬랙봇)
 
 ---
 
@@ -57,6 +58,7 @@ URL 입력 (GUI 또는 crawl/urls.txt)
 ```
 URL-bot/
 ├── server.py                    # 웹 GUI 서버 (FastAPI)
+├── slack_bot.py                 # 슬랙봇 (Slack Bolt, Socket Mode)
 │
 ├── web/
 │   ├── index.html               # 웹 프론트엔드
@@ -109,10 +111,14 @@ pip install -r requirements.txt
 playwright install chrome
 ```
 
-프로젝트 루트에 `.env` 파일을 만들고 OpenAI API 키를 입력합니다:
+프로젝트 루트에 `.env` 파일을 만들고 API 키를 입력합니다:
 
 ```
 OPENAI_API_KEY=sk-...
+
+# 슬랙봇 사용 시 추가
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
 ```
 
 `.env` 파일은 `.gitignore`에 등록되어 있어 git에 올라가지 않습니다.
@@ -121,7 +127,7 @@ OPENAI_API_KEY=sk-...
 
 ## 4. 사용 방법
 
-### 방법 A: 웹 GUI (권장)
+### 방법 A: 웹 GUI
 
 > 브라우저에서 URL을 붙여넣고 버튼만 누르면 됩니다.  
 > 실시간 로그로 진행 상황을 확인하고, 추출 결과를 표로 바로 볼 수 있습니다.
@@ -150,7 +156,27 @@ python server.py
 
 ---
 
-### 방법 B: CLI (단계별 개별 실행)
+### 방법 B: 슬랙봇
+
+> Slack App Home에서 URL을 입력하면 크롤링과 Extract를 슬랙 안에서 바로 실행할 수 있습니다.  
+> 결과는 DM으로 받고, Extract 버튼 한 번으로 추출까지 완료됩니다.  
+> 자세한 설정 방법은 [9. 슬랙봇](#9-슬랙봇) 섹션을 참고하세요.
+
+```bash
+python slack_bot.py
+```
+
+**흐름**
+
+1. Slack에서 URL Bot 앱의 **App Home** 탭 열기
+2. **새 작업 시작** 버튼 클릭 → URL 입력 모달에 상품 URL 입력 (한 줄에 하나씩)
+3. OCR이 필요하면 **OCR 포함** 체크 후 **실행**
+4. 처리 완료 시 DM으로 결과 통보 → **📊 Extract 실행** 버튼 클릭
+5. DM에 상품명·제조원·모델번호·규격이 표시됨
+
+---
+
+### 방법 C: CLI (단계별 개별 실행)
 
 > 자동화 스크립트나 대량 처리에 적합합니다.  
 > `crawl/urls.txt`에 URL을 넣고 각 단계를 순서대로 실행합니다.
@@ -269,3 +295,66 @@ python extract/extractor.py  # 3단계: 추출
 | Danawa | 87.6초 | 177.2초 |
 | Navimro (2) | 40.9초 | 115.8초 |
 | **단계 합계** | **218.7초** | **664.6초** |
+
+---
+
+## 9. 슬랙봇
+
+> Slack 앱을 설치하면 브라우저 없이 슬랙에서 바로 URL을 입력하고 결과를 받을 수 있습니다.  
+> Socket Mode로 동작하므로 외부 서버 없이 로컬에서 실행됩니다.
+
+### Slack 앱 설정
+
+1. [api.slack.com/apps](https://api.slack.com/apps) 에서 새 앱을 만들고 워크스페이스에 설치합니다.
+2. **OAuth & Permissions > Bot Token Scopes**에 아래 권한을 추가합니다:
+
+   | Scope | 용도 |
+   |---|---|
+   | `app_mentions:read` | 멘션 수신 |
+   | `chat:write` | DM 전송 |
+   | `im:write` | DM 채널 열기 |
+   | `im:read` | DM 채널 조회 |
+
+3. **Socket Mode**를 활성화하고 App-Level Token(`xapp-...`)을 발급합니다.
+4. **App Home > Show Tabs**에서 **Home Tab**을 켭니다.
+5. **Event Subscriptions > Subscribe to bot events**에 `app_home_opened`를 추가합니다.
+6. **Interactivity & Shortcuts**를 활성화합니다 (모달·버튼 동작에 필요).
+
+### 환경 변수
+
+`.env`에 아래 두 줄을 추가합니다:
+
+```
+SLACK_BOT_TOKEN=xoxb-...   # OAuth & Permissions > Bot User OAuth Token
+SLACK_APP_TOKEN=xapp-...   # Basic Information > App-Level Tokens
+```
+
+### 실행
+
+```bash
+python slack_bot.py
+```
+
+### 사용 흐름
+
+```
+App Home [새 작업 시작]
+        │
+        ▼
+URL 입력 모달 (여러 URL, OCR 옵션)
+        │
+        ▼
+백그라운드 실행: 크롤링 (→ OCR)
+        │  완료 시 App Home 상태 업데이트
+        ▼
+DM: ✅ 크롤링 완료 + [📊 Extract 실행] 버튼
+        │
+        ▼
+DM: 상품명 / 제조원 / 모델번호 / 규격 (출처 뱃지 포함)
+```
+
+### 주의사항
+
+- 슬랙봇은 크롤링 결과를 서버 메모리(`user_jobs`)에 임시 저장합니다. 봇을 재시작하면 이전 작업 결과가 사라집니다.
+- 한 사용자가 동시에 하나의 작업만 유지됩니다. 작업 중 새 작업을 시작하면 이전 결과를 덮어씁니다.
+- 모델 10개를 초과하는 경우 DM에는 상위 10개만 표시됩니다.
