@@ -12,9 +12,8 @@
 4. [사용 방법](#4-사용-방법)
 5. [각 단계 상세](#5-각-단계-상세)
 6. [주요 설정](#6-주요-설정)
-7. [지원 사이트](#7-지원-사이트)
-8. [성능 측정](#8-성능-측정)
-9. [슬랙봇](#9-슬랙봇)
+7. [성능 측정](#7-성능-측정)
+8. [슬랙봇](#8-슬랙봇)
 
 ---
 
@@ -160,7 +159,7 @@ python server.py
 
 > Slack App Home에서 URL을 입력하면 크롤링과 Extract를 슬랙 안에서 바로 실행할 수 있습니다.  
 > 결과는 DM으로 받고, Extract 버튼 한 번으로 추출까지 완료됩니다.  
-> 자세한 설정 방법은 [9. 슬랙봇](#9-슬랙봇) 섹션을 참고하세요.
+> 자세한 설정 방법은 [8. 슬랙봇](#8-슬랙봇) 섹션을 참고하세요.
 
 ```bash
 python slack_bot.py
@@ -207,6 +206,7 @@ python extract/extractor.py  # 3단계: 추출
 - **페이지 자동 조작**: 쿠키 동의·더보기 버튼 자동 클릭, 지연 로딩 완료 후 수집
 - **표 병합**: 열 고정으로 분리 렌더링된 표(MISUMI 등)를 하나로 합쳐서 저장
 - **병렬 처리**: 여러 URL 동시 크롤링 (기본 3개)
+- **지원 사이트**: Misumi, Festo, Swagelok, Siemens Industry Mall, Navimro, Danawa는 상품 영역 선택자가 등록되어 더 정확하게 수집됩니다. 등록되지 않은 사이트도 일반 크롤링으로 동작합니다. 네이버·쿠팡·지마켓·옥션은 자동으로 제외됩니다.
 - **이미지 3단계 다운로드**: OCR용 이미지를 아래 순서로 시도해 잘린 이미지 없이 원본을 확보
   1. **브라우저 fetch** — 쿠키·세션이 살아있는 상태로 브라우저 내부에서 직접 다운로드 (CORS 우회, 로그인 이미지 포함)
   2. **Python urllib 폴백** — 브라우저 fetch가 CORS·SSL 오류로 실패하면 Python이 직접 HTTP 요청으로 재시도
@@ -264,24 +264,7 @@ python extract/extractor.py  # 3단계: 추출
 
 ---
 
-## 7. 지원 사이트
-
-> 아래 사이트는 상품 영역 선택자가 등록되어 있어 더 정확하게 수집됩니다.  
-> 등록되지 않은 사이트도 일반 크롤링으로 동작합니다.
-
-| 사이트 | 크롤링 |
-|---|:---:|
-| Misumi (kr.misumi-ec.com) | ✅ |
-| Festo (www.festo.com) | ✅ |
-| Swagelok (products.swagelok.com) | ✅ |
-| Siemens Industry Mall | ✅ |
-| Navimro (www.navimro.com) | ✅ |
-| Danawa (prod.danawa.com) | ✅ |
-| 네이버, 쿠팡, Gmarket, Auction | 🚫 자동 제외 |
-
----
-
-## 8. 성능 측정
+## 7. 성능 측정 (수정 예정)
 
 > 환경: Windows 11, Chrome (non-headless), Intel i5-1135G7 / RAM 16GB / 내장그래픽(CPU 추론)
 
@@ -298,7 +281,7 @@ python extract/extractor.py  # 3단계: 추출
 
 ---
 
-## 9. 슬랙봇
+## 8. 슬랙봇
 
 > Slack 앱을 설치하면 브라우저 없이 슬랙에서 바로 URL을 입력하고 결과를 받을 수 있습니다.  
 > Socket Mode로 동작하므로 외부 서버 없이 로컬에서 실행됩니다.

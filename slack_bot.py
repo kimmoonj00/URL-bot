@@ -1,6 +1,9 @@
+import asyncio
+import json
 import os
 import sys
 import threading
+import traceback
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -16,59 +19,42 @@ if _ROOT not in sys.path:
 
 app = App(token=os.environ["SLACK_BOT_TOKEN"])
 
-# user_id → job 상태 저장
-user_jobs: dict = {}
+_lock = threading.Lock()
+_dm_cache: dict = {}       # user_id → DM channel_id
+_extracting: set = set()   # (channel, message_ts) — 중복 Extract 방지
+
+
+# ── 헬퍼 ──────────────────────────────────────────────────────────────────────
+
+def _send_dm(client, user_id: str, text: str, blocks=None) -> None:
+    if user_id not in _dm_cache:
+        res = client.conversations_open(users=user_id)
+        _dm_cache[user_id] = res["channel"]["id"]
+    kwargs = {"channel": _dm_cache[user_id], "text": text}
+    if blocks:
+        kwargs["blocks"] = blocks
+    client.chat_postMessage(**kwargs)
 
 
 # ── App Home ──────────────────────────────────────────────────────────────────
 
-def _home_view(user_id: str) -> dict:
-    job = user_jobs.get(user_id, {})
-    status = job.get("status", "idle")
-
-    blocks = [
-        {"type": "header", "text": {"type": "plain_text", "text": "🤖 URL Bot"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": "상품 URL을 입력하면 크롤링 → OCR → 정보 추출까지 자동으로 진행됩니다."}},
-        {"type": "divider"},
-    ]
-
-    if status == "running":
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": "⏳ *처리 중입니다...*\n완료되면 DM으로 알려드릴게요."}
-        })
-    elif status == "error":
-        blocks += [
-            {"type": "section", "text": {"type": "mrkdwn", "text": "❌ *오류가 발생했습니다.* DM을 확인하세요."}},
+def _home_view() -> dict:
+    return {
+        "type": "home",
+        "blocks": [
+            {"type": "header", "text": {"type": "plain_text", "text": "🤖 URL Bot"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "상품 URL을 입력하면 크롤링 → OCR → 정보 추출까지 자동으로 진행됩니다."}},
+            {"type": "divider"},
             {"type": "actions", "elements": [
-                {"type": "button", "text": {"type": "plain_text", "text": "🔍 다시 시작"}, "style": "primary", "action_id": "open_run_modal"}
+                {"type": "button", "text": {"type": "plain_text", "text": "🔍 새 작업 시작"}, "style": "primary", "action_id": "open_run_modal"}
             ]}
         ]
-    else:
-        if status == "done":
-            blocks.append({
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "✅ *크롤링 완료!* DM에서 Extract를 실행하세요."}
-            })
-            blocks.append({"type": "divider"})
-
-        blocks.append({
-            "type": "actions",
-            "elements": [
-                {"type": "button", "text": {"type": "plain_text", "text": "🔍 새 작업 시작"}, "style": "primary", "action_id": "open_run_modal"}
-            ]
-        })
-
-    return {"type": "home", "blocks": blocks}
+    }
 
 
 @app.event("app_home_opened")
 def handle_app_home_opened(client, event):
-    user_id = event["user"]
-    # 봇 재시작 후 "처리 중" 상태가 남아있으면 초기화
-    if user_jobs.get(user_id, {}).get("status") == "running":
-        user_jobs.pop(user_id, None)
-    client.views_publish(user_id=user_id, view=_home_view(user_id))
+    client.views_publish(user_id=event["user"], view=_home_view())
 
 
 # ── 실행 모달 ─────────────────────────────────────────────────────────────────
@@ -112,6 +98,12 @@ def open_run_modal(ack, body, client):
                             }
                         ]
                     }
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {"type": "mrkdwn", "text": "⏱ URL당 크롤링 약 30초, OCR 포함 시 추가 1~3분 소요됩니다."}
+                    ]
                 }
             ]
         }
@@ -127,15 +119,13 @@ def handle_run_modal_submit(ack, body, client):
 
     raw_urls = values["urls_block"]["urls_input"]["value"] or ""
     urls = [u.strip() for u in raw_urls.splitlines() if u.strip().startswith("http")]
-    ocr_options = values["ocr_block"]["ocr_checkbox"].get("selected_options", [])
-    run_ocr = len(ocr_options) > 0
+
+    ocr_block = values.get("ocr_block", {}).get("ocr_checkbox", {})
+    run_ocr = len(ocr_block.get("selected_options", [])) > 0
 
     if not urls:
         _send_dm(client, user_id, "❌ 유효한 URL이 없습니다. `https://`로 시작하는 URL을 입력해주세요.")
         return
-
-    user_jobs[user_id] = {"status": "running"}
-    client.views_publish(user_id=user_id, view=_home_view(user_id))
 
     threading.Thread(
         target=_run_pipeline,
@@ -146,31 +136,27 @@ def handle_run_modal_submit(ack, body, client):
 
 # ── 파이프라인 ────────────────────────────────────────────────────────────────
 
-def _send_dm(client, user_id: str, text: str, blocks=None):
-    res = client.conversations_open(users=user_id)
-    channel = res["channel"]["id"]
-    kwargs = {"channel": channel, "text": text}
-    if blocks:
-        kwargs["blocks"] = blocks
-    client.chat_postMessage(**kwargs)
-
-
-def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client):
+def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
     try:
-        from crawl.crawler import run_capture_bot
+        from crawl.crawler import _run_capture_bot_async
         from ocr import paddle_ocr
 
         run_name = "slack_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         output_dir = os.path.join(_ROOT, "crawl", "output", run_name)
         ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name) if run_ocr else None
 
-        run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
+        # 스레드마다 새 이벤트 루프 생성 — Bolt의 루프와 충돌 방지
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_run_capture_bot_async(
+                run_ocr_and_extract=False, urls=urls, output_dir=output_dir
+            ))
+        finally:
+            loop.close()
 
         if run_ocr and ocr_dir:
             paddle_ocr.ocr_capture_dir(output_dir, ocr_dir)
-
-        user_jobs[user_id] = {"status": "done", "output_dir": output_dir, "ocr_dir": ocr_dir}
-        client.views_publish(user_id=user_id, view=_home_view(user_id))
 
         ocr_tag = " (OCR 포함)" if run_ocr else ""
         url_list = "\n".join(f"• {u}" for u in urls)
@@ -180,14 +166,15 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client):
             blocks=[
                 {"type": "section", "text": {"type": "mrkdwn", "text": f"✅ *크롤링 완료{ocr_tag}*\n{url_list}"}},
                 {"type": "actions", "elements": [
-                    {"type": "button", "text": {"type": "plain_text", "text": "📊 Extract 실행"}, "style": "primary", "action_id": "run_extract"}
+                    {"type": "button", "text": {"type": "plain_text", "text": "📊 Extract 실행"}, "style": "primary",
+                     "action_id": "run_extract",
+                     "value": json.dumps({"output_dir": output_dir, "ocr_dir": ocr_dir})}
                 ]}
             ]
         )
 
     except Exception as e:
-        user_jobs[user_id] = {"status": "error"}
-        client.views_publish(user_id=user_id, view=_home_view(user_id))
+        traceback.print_exc()
         _send_dm(client, user_id, f"❌ 처리 중 오류 발생:\n`{e}`")
 
 
@@ -197,33 +184,47 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client):
 def handle_extract(ack, body, client):
     ack()
     user_id = body["user"]["id"]
-    job = user_jobs.get(user_id, {})
 
-    output_dir = job.get("output_dir")
-    ocr_dir = job.get("ocr_dir")
+    try:
+        job_data = json.loads(body["actions"][0].get("value", "{}"))
+    except (json.JSONDecodeError, KeyError):
+        job_data = {}
+
+    output_dir = job_data.get("output_dir")
+    ocr_dir = job_data.get("ocr_dir")
 
     if not output_dir:
-        _send_dm(client, user_id, "❌ 크롤링 결과가 없습니다. App Home에서 먼저 실행해주세요.")
+        _send_dm(client, user_id, "❌ 크롤링 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
         return
 
-    # Extract 버튼 비활성화 (중복 클릭 방지)
     channel = body["container"]["channel_id"]
     message_ts = body["container"]["message_ts"]
-    client.chat_update(
-        channel=channel,
-        ts=message_ts,
-        text="⏳ Extract 실행 중...",
-        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "⏳ *Extract 실행 중입니다...*"}}]
-    )
+    extract_key = (channel, message_ts)
 
-    threading.Thread(
-        target=_run_extract,
-        args=(user_id, output_dir, ocr_dir, client),
-        daemon=True,
-    ).start()
+    with _lock:
+        if extract_key in _extracting:
+            return
+        _extracting.add(extract_key)
+
+    try:
+        client.chat_update(
+            channel=channel,
+            ts=message_ts,
+            text="⏳ Extract 실행 중...",
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "⏳ *Extract 실행 중입니다...*"}}]
+        )
+        threading.Thread(
+            target=_run_extract,
+            args=(user_id, output_dir, ocr_dir, client, extract_key),
+            daemon=True,
+        ).start()
+    except Exception:
+        with _lock:
+            _extracting.discard(extract_key)
+        raise
 
 
-def _run_extract(user_id: str, output_dir: str, ocr_dir, client):
+def _run_extract(user_id: str, output_dir: str, ocr_dir, client, extract_key=None) -> None:
     try:
         from extract.extractor import build_summary
         by_domain = build_summary(output_dir, ocr_dir=ocr_dir)
@@ -233,53 +234,84 @@ def _run_extract(user_id: str, output_dir: str, ocr_dir, client):
             records.extend(domain_records)
 
         if not records:
-            _send_dm(client, user_id, "결과를 가져오지 못했습니다.")
+            _send_dm(client, user_id, "❌ 추출 결과가 없습니다.")
             return
 
         for rec in records:
             _send_dm(client, user_id, text=rec.get("상품명", "결과"), blocks=_result_blocks(rec))
 
     except Exception as e:
+        traceback.print_exc()
         _send_dm(client, user_id, f"❌ Extract 오류:\n`{e}`")
+    finally:
+        if extract_key:
+            with _lock:
+                _extracting.discard(extract_key)
 
 
 def _result_blocks(rec: dict) -> list:
-    blocks = []
+    _TEXT_LIMIT = 2900
+
     url = rec.get("URL", "")
     product_name = rec.get("상품명") or "(상품명 미확인)"
     manufacturer = rec.get("제조원", "")
     mfr_source = rec.get("제조원_source", "")
     variants = rec.get("variants", [])
 
-    blocks.append({"type": "header", "text": {"type": "plain_text", "text": product_name[:150]}})
-    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"🔗 {url}"}})
+    # 헤더: 상품명 + 제조원 합산 150자 이내
+    src_tag = f" ({mfr_source.upper()})" if mfr_source else ""
+    mfr_part = f"  |  {manufacturer}{src_tag}" if manufacturer else ""
+    header_text = (product_name + mfr_part)[:150]
 
-    if manufacturer:
-        badge = f" `{mfr_source.upper()}`" if mfr_source else ""
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*제조원*: {manufacturer}{badge}"}})
+    blocks = [
+        {"type": "header", "text": {"type": "plain_text", "text": header_text}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"🔗 {url}"}},
+    ]
 
-    if variants:
-        blocks.append({"type": "divider"})
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*모델 ({len(variants)}개)*"}})
+    if not variants:
+        return blocks
 
-        for v in variants[:10]:
+    show = variants[:15]
+
+    # 규격 키 목록 수집 (순서 유지)
+    spec_keys: list = []
+    for v in show:
+        for spec in v.get("규격", []):
+            txt = spec.get("text", "")
+            if ":" in txt:
+                key = txt.split(":", 1)[0].strip()
+                if key not in spec_keys:
+                    spec_keys.append(key)
+
+    if spec_keys:
+        col_w = max(len(k) for k in spec_keys) + 2
+        model_w = max((len(v.get("model", "")) for v in show), default=10) + 2
+        header_row = f"{'모델번호':<{model_w}}" + "".join(f"{k:<{col_w}}" for k in spec_keys)
+        sep = "-" * len(header_row)
+        rows = [header_row, sep]
+        for v in show:
             model = v.get("model", "")
-            model_source = v.get("model_source", "")
-            m_badge = f" `{model_source.upper()}`" if model_source else ""
-            spec_lines = []
+            spec_map = {}
             for spec in v.get("규격", []):
-                s_source = spec.get("source", "")
-                s_badge = f" `{s_source.upper()}`" if s_source else ""
-                spec_lines.append(f"  └ {spec.get('text', '')}{s_badge}")
+                txt = spec.get("text", "")
+                if ":" in txt:
+                    k, val = txt.split(":", 1)
+                    spec_map[k.strip()] = val.strip()
+            rows.append(f"{model:<{model_w}}" + "".join(f"{spec_map.get(k, '-'):<{col_w}}" for k in spec_keys))
 
-            text = f"• `{model}`{m_badge}"
-            if spec_lines:
-                text += "\n" + "\n".join(spec_lines)
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+        table_text = "```\n" + "\n".join(rows) + "\n```"
+    else:
+        lines = [f"• `{v.get('model', '')}`" for v in show]
+        table_text = "\n".join(lines)
 
-        if len(variants) > 10:
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"_… 외 {len(variants) - 10}개_"}})
+    suffix = f"\n_… 외 {len(variants) - 15}개_" if len(variants) > 15 else ""
+    body_text = f"*모델 {len(variants)}개*\n{table_text}{suffix}"
 
+    # 3000자 제한 초과 시 잘라내기
+    if len(body_text) > _TEXT_LIMIT:
+        body_text = body_text[:_TEXT_LIMIT] + "\n…(생략됨)"
+
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body_text}})
     return blocks
 
 
