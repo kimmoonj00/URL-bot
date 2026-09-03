@@ -37,7 +37,15 @@ def _send_dm(client, user_id: str, text: str, blocks=None) -> None:
 
 
 def _src_emoji(source: str) -> str:
-    return "🔵 DOM" if source == "dom" else "🟠 OCR"
+    return "🔵 DOM" if source != "ocr" else "🟠 OCR"
+
+
+def _legend_line(ocr_confidence) -> str:
+    """DOM/OCR 범례. OCR 신뢰도는 항목 하나하나가 아니라 그 상품 이미지
+    전체의 PaddleOCR 평균 인식 신뢰도라서, 개별 항목이 아니라 여기 범례에
+    한 번만 붙인다."""
+    ocr_label = f"🟠 *OCR {ocr_confidence}%*" if ocr_confidence is not None else "🟠 *OCR*"
+    return f"🔵 *DOM* — HTML 구조·표에서 추출    {ocr_label} — 이미지 인식 (오탈자 가능성 있음)"
 
 
 def _url_preview(urls: list) -> str:
@@ -261,10 +269,6 @@ def _run_extract(user_id: str, output_dir: str, ocr_dir, client, extract_key=Non
             _send_dm(client, user_id, "❌ 추출 결과가 없습니다.")
             return
 
-        _send_dm(client, user_id, text="추출 완료",
-            blocks=[{"type": "context", "elements": [{"type": "mrkdwn",
-                "text": "🔵 *DOM* — HTML 구조·표에서 추출    🟠 *OCR* — 이미지 인식 (오탈자 가능성 있음)"}]}])
-
         for rec in records:
             _send_dm(client, user_id, text=rec.get("상품명", "결과"), blocks=_result_blocks(rec))
 
@@ -285,8 +289,10 @@ def _result_blocks(rec: dict) -> list:
     manufacturer = rec.get("제조원", "")
     mfr_source = rec.get("제조원_source", "")
     variants = rec.get("variants", [])
+    ocr_confidence = rec.get("OCR_평균신뢰도")
 
     blocks = [
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _legend_line(ocr_confidence)}]},
         {"type": "header", "text": {"type": "plain_text", "text": f"📌 {product_name}"[:150]}},
         {"type": "section", "text": {"type": "mrkdwn", "text": f"• {url}"}},
     ]

@@ -602,17 +602,25 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
     # 있으면 DOM 섹션과 OCR 섹션을 분리해서 각각 context/ocr로 전달한다.
     # GPT가 source 필드(dom/ocr)를 정확히 구분하려면 두 섹션이 명확히 분리돼야 한다.
     ocr_text = ""
+    ocr_confidence = None
     if ocr_dir:
         rel = os.path.relpath(crawl_prefix, crawl_dir)
-        product_md = _read_text(os.path.join(ocr_dir, rel, "product.md"))
+        ocr_product_dir = os.path.join(ocr_dir, rel)
+        product_md = _read_text(os.path.join(ocr_product_dir, "product.md"))
         if product_md:
             parts = product_md.split("\n## 이미지 OCR", 1)
             context_text = parts[0].strip()
             ocr_text = parts[1].strip() if len(parts) > 1 else ""
+        conf_data = _read_json(os.path.join(ocr_product_dir, "ocr_confidence.json"), None)
+        if conf_data:
+            ocr_confidence = conf_data.get("avg_confidence")
 
     if config.EXTRACTION_ENGINE == "gpt":
         try:
-            return build_record_with_gpt(url, metadata, context_text, ocr_text)
+            result = build_record_with_gpt(url, metadata, context_text, ocr_text)
+            if ocr_confidence is not None:
+                result["OCR_평균신뢰도"] = ocr_confidence
+            return result
         except Exception as error:
             print(f"   ⚠️  GPT 추출 실패({error}) → 규칙 기반으로 대체합니다: {url}")
 
@@ -621,6 +629,8 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
     result = build_record_with_rules(url, metadata, host, context_text, "", [], ocr_text)
     elapsed = time.perf_counter() - started
     print(f"   📋 규칙 기반 추출: {url} ({elapsed:.2f}초)")
+    if ocr_confidence is not None:
+        result["OCR_평균신뢰도"] = ocr_confidence
     return result
 
 

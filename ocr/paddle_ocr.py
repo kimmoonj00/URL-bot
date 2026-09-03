@@ -9,6 +9,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 import glob
+import json
 import re
 import subprocess
 import time
@@ -565,6 +566,7 @@ def run_ocr(image_path):
         y = bottom if bottom >= height else bottom - config.OCR_TILE_OVERLAP
 
     all_words = _dedup(all_words)
+    avg_conf = sum(w["conf"] for w in all_words) / len(all_words) if all_words else None
     # 열(column) 단위로 먼저 나눈 뒤 열마다 따로 행을 묶는다 — 안 그러면
     # 같은 y대에 있는 서로 다른 열(예: 좌측 캡션 vs 우측 표)의 텍스트가
     # 한 행으로 섞인다. 행 재조합·띄어쓰기 복원은 _render_block에서 한다.
@@ -573,7 +575,7 @@ def run_ocr(image_path):
         rows = _group_rows(column_words)
         if rows:
             blocks.append(_render_block(rows, img))
-    return "\n\n".join(blocks)
+    return "\n\n".join(blocks), avg_conf
 
 
 _ISOLATE_TIMEOUT_BASE_SEC = 60   # 프로세스 시작 + 엔진 로딩 여유
@@ -608,7 +610,7 @@ def _ocr_one_inprocess(image_path, text_path):
     start_time = time.perf_counter()
 
     try:
-        text = run_ocr(image_path)
+        text, avg_conf = run_ocr(image_path)
     except Exception as e:
         elapsed = time.perf_counter() - start_time
         print(f"  ❌ OCR 실패: {e}")
@@ -618,6 +620,15 @@ def _ocr_one_inprocess(image_path, text_path):
     os.makedirs(os.path.dirname(text_path), exist_ok=True)
     with open(text_path, "w", encoding="utf-8") as f:
         f.write(text)
+    # 이미지별 평균 인식 신뢰도를 사이드카 파일로 저장 — GPT가 만든 텍스트를
+    # 거치면 값이 재구성/의역돼 특정 항목 하나에 신뢰도를 되짚어 붙일 수는
+    # 없지만, "이 이미지에서 뽑은 OCR 텍스트가 전반적으로 얼마나 확실한가"는
+    # 상품 단위로 집계해 Slack 결과에 보여줄 수 있다.
+    if avg_conf is not None:
+        with open(text_path + ".conf", "w", encoding="utf-8") as f:
+            f.write(f"{avg_conf:.4f}")
+    elif os.path.exists(text_path + ".conf"):
+        os.remove(text_path + ".conf")
 
     elapsed = time.perf_counter() - start_time
     print(f"  ✅ OCR 완료 → {text_path} ({len(text.splitlines())}줄)")
@@ -746,12 +757,20 @@ def ocr_capture_dir(crawl_dir, ocr_dir=None):
     combined_by_crawl_prefix = {}
     for crawl_prefix, pairs in per_product_pairs.items():
         chunks = []
+        confs = []
         for _image_path, text_path in pairs:
             if os.path.exists(text_path):
                 with open(text_path, encoding="utf-8") as f:
                     text = f.read().strip()
                 if text:
                     chunks.append(text)
+                    conf_path = text_path + ".conf"
+                    if os.path.exists(conf_path):
+                        with open(conf_path, encoding="utf-8") as f:
+                            try:
+                                confs.append(float(f.read().strip()))
+                            except ValueError:
+                                pass
         if chunks:
             combined_by_crawl_prefix[crawl_prefix] = chunks
 
@@ -761,6 +780,9 @@ def ocr_capture_dir(crawl_dir, ocr_dir=None):
             os.makedirs(ocr_product_dir, exist_ok=True)
             with open(os.path.join(ocr_product_dir, "ocr_asset.txt"), "w", encoding="utf-8") as f:
                 f.write("\n\n".join(chunks))
+            if confs:
+                with open(os.path.join(ocr_product_dir, "ocr_confidence.json"), "w", encoding="utf-8") as f:
+                    json.dump({"avg_confidence": round(sum(confs) / len(confs) * 100)}, f)
         _write_product_md(ocr_product_dir, crawl_prefix, chunks)
 
     total_elapsed = time.perf_counter() - pipeline_start

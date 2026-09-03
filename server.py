@@ -6,6 +6,7 @@ import shutil
 import sys
 import threading
 import time
+import urllib.request
 import uuid
 from datetime import datetime, timedelta
 
@@ -118,6 +119,38 @@ class _LogCapture:
         return self._orig.fileno()
 
 
+def _notify_slack(text: str):
+    """SLACK_BOT_TOKEN/SLACK_CHANNEL_ID가 .env에 설정돼 있으면 알림을 보낸다.
+    없으면 조용히 스킵한다 (알림 기능은 선택 사항)."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(_ROOT, ".env"))
+    except ImportError:
+        pass
+
+    token = os.environ.get("SLACK_BOT_TOKEN")
+    channel = os.environ.get("SLACK_CHANNEL_ID")
+    if not token or not channel:
+        return
+
+    try:
+        req = urllib.request.Request(
+            "https://slack.com/api/chat.postMessage",
+            data=json.dumps({"channel": channel, "text": text}).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            if not result.get("ok"):
+                print(f"[slack] 알림 실패: {result.get('error')}")
+    except Exception as exc:
+        print(f"[slack] 알림 전송 오류: {exc}")
+
+
 def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
     job = jobs[job_id]
     log_q = job["log_queue"]
@@ -141,10 +174,14 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
             job["ocr_dir"] = ocr_dir
 
         job["status"] = "done"
+        url_summary = urls[0] + (f" 외 {len(urls) - 1}개" if len(urls) > 1 else "")
+        _notify_slack(f"✅ 크롤링 완료: {url_summary}")
     except Exception as exc:
         log_q.put(f"[오류] {exc}")
         job["status"] = "error"
         job["error"] = str(exc)
+        url_summary = urls[0] + (f" 외 {len(urls) - 1}개" if len(urls) > 1 else "")
+        _notify_slack(f"❌ 크롤링 실패: {url_summary}\n{exc}")
     finally:
         sys.stdout = original_stdout
         log_q.put(None)  # 스트리밍 종료 신호
