@@ -1,10 +1,13 @@
 import asyncio
 import base64
+import concurrent.futures
+import dataclasses
 import json
 import os
 import re
 import ssl
 import sys
+import threading as _threading
 import time
 import urllib.request
 from datetime import datetime
@@ -34,8 +37,9 @@ from config import (
     BLOCK_RESOURCE_TYPES,
     BLOCK_URL_KEYWORDS,
     BLOCKED_CHECK_TIMEOUT_MS,
-    BROWSER_PROFILE_DIR,
+    BROWSER_PROFILE_BASE_DIR,
     CHALLENGE_POLL_INTERVAL_MS,
+    CRAWL_QUEUE_MAXSIZE,
     CONSENT_CLICK_TIMEOUT_MS,
     CONSENT_MAX_BUTTONS,
     CONSENT_SETTLE_MS,
@@ -62,6 +66,7 @@ from config import (
     MIN_OCR_ASSET_WIDTH,
     NAV_TIMEOUT_MS,
     NETWORK_SETTLE_TIMEOUT_MS,
+    NUM_BROWSER_WORKERS,
     PRODUCT_REGION_MIN_HEIGHT,
     PRODUCT_REGION_MIN_WIDTH,
     PRODUCT_REGION_SELECTORS,
@@ -688,6 +693,52 @@ async def capture_one(page, url, index, total, output_dir):
     return "captured"
 
 
+async def _capture_urls_with_context(context, urls: list, output_dir: str) -> str:
+    """이미 열린 Playwright context로 URL 목록을 캡처하고 output_dir에 저장한다.
+    context 생성/해제는 호출자 책임 — 이 함수는 건드리지 않는다.
+    워커 풀에서 context를 재사용하거나, CLI용 _run_capture_bot_async에서 직접 호출한다."""
+    os.makedirs(output_dir, exist_ok=True)
+    started = time.perf_counter()
+    total = len(urls)
+    sem = asyncio.Semaphore(MAX_CONCURRENT_PAGES)
+
+    async def _task(url, index):
+        async with sem:
+            page = await context.new_page()
+            try:
+                return await capture_one(page, url, index, total, output_dir)
+            except Exception as error:
+                print(f"   오류: {error}")
+                try:
+                    error_dir = os.path.join(output_dir, f"{index}_{safe_name(url)}")
+                    os.makedirs(error_dir, exist_ok=True)
+                    await page.screenshot(
+                        path=os.path.join(error_dir, "error.png"), full_page=True,
+                    )
+                except Exception:
+                    pass
+                return "error"
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+
+    results_raw = await asyncio.gather(
+        *[_task(url, i) for i, url in enumerate(urls, 1)],
+        return_exceptions=True,
+    )
+    results_raw = ["error" if isinstance(r, BaseException) else r for r in results_raw]
+
+    elapsed = time.perf_counter() - started
+    results = [{"url": url, "status": s} for url, s in zip(urls, results_raw)]
+    with open(os.path.join(output_dir, "capture_summary.json"), "w", encoding="utf-8") as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+    print(f"\n캡처 완료: {output_dir}")
+    print(f"⏱️  캡처 소요 시간: {elapsed:.1f}초 (평균 {elapsed / total:.1f}초/건)")
+    return output_dir
+
+
 async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir=None):
     source = urls if urls is not None else TARGET_URLS
     urls = [
@@ -708,15 +759,17 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
             "cli_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         )
     os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
+
+    # CLI 전용 프로필 — Slack 워커(worker_0 ~ worker_N)와 디렉토리를 분리해 충돌 방지
+    cli_profile = os.path.join(BROWSER_PROFILE_BASE_DIR, "worker_cli")
+    os.makedirs(cli_profile, exist_ok=True)
     print(f"캡처 대상 {len(urls)}개 / 저장 위치: {output_dir}")
 
     pipeline_started = time.perf_counter()
 
     async with async_playwright() as playwright:
-        # 실제 Chrome 프로필과 섞지 않는 전용 영구 프로필이다.
         context = await playwright.chromium.launch_persistent_context(
-            BROWSER_PROFILE_DIR,
+            cli_profile,
             channel="chrome",
             headless=HEADLESS,
             viewport=DEFAULT_VIEWPORT,
@@ -725,51 +778,13 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
             args=["--start-maximized"],
         )
         await setup_resource_blocking(context)
-
-        sem = asyncio.Semaphore(MAX_CONCURRENT_PAGES)
-        total = len(urls)
-
-        async def _capture_task(url, index):
-            async with sem:
-                page = await context.new_page()
-                try:
-                    return await capture_one(page, url, index, total, output_dir)
-                except Exception as error:
-                    print(f"   오류: {error}")
-                    try:
-                        error_dir = os.path.join(output_dir, f"{index}_{safe_name(url)}")
-                        os.makedirs(error_dir, exist_ok=True)
-                        await page.screenshot(
-                            path=os.path.join(error_dir, "error.png"),
-                            full_page=True,
-                        )
-                    except Exception:
-                        pass
-                    return "error"
-                finally:
-                    try:
-                        await page.close()
-                    except Exception:
-                        pass
-
-        tasks = [_capture_task(url, i) for i, url in enumerate(urls, 1)]
-        results_raw = await asyncio.gather(*tasks, return_exceptions=True)
-        results_raw = [
-            "error" if isinstance(r, BaseException) else r
-            for r in results_raw
-        ]
         try:
-            await context.close()
-        except Exception:
-            pass
-
-    capture_elapsed = time.perf_counter() - pipeline_started
-    results = [{"url": url, "status": status} for url, status in zip(urls, results_raw)]
-
-    with open(os.path.join(output_dir, "capture_summary.json"), "w", encoding="utf-8") as output:
-        json.dump(results, output, ensure_ascii=False, indent=2)
-    print(f"\n캡처 완료: {output_dir}")
-    print(f"⏱️  캡처 전체 소요 시간: {capture_elapsed:.1f}초 (평균 {capture_elapsed / len(urls):.1f}초/건)")
+            await _capture_urls_with_context(context, urls, output_dir)
+        finally:
+            try:
+                await context.close()
+            except Exception:
+                pass
 
     if run_ocr_and_extract:
         from ocr import paddle_ocr
@@ -785,6 +800,148 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
     total_elapsed = time.perf_counter() - pipeline_started
     print(f"⏱️  전체 파이프라인 소요 시간: {total_elapsed:.1f}초")
     return output_dir
+
+
+# ── 브라우저 워커 풀 (Slack 봇 전용) ─────────────────────────────────────────────
+
+
+class QueueFullError(Exception):
+    """대기열이 가득 차 요청을 수락할 수 없을 때."""
+
+
+@dataclasses.dataclass
+class _CrawlJob:
+    urls: list
+    output_dir: str
+    future: concurrent.futures.Future
+
+
+_pool_lock = _threading.Lock()
+_pool_loop: asyncio.AbstractEventLoop | None = None
+_job_queue: asyncio.Queue | None = None
+
+
+async def _browser_worker(worker_id: int, queue: asyncio.Queue) -> None:
+    """Chrome 인스턴스를 유지하며 큐에서 작업을 꺼내 처리하는 영구 워커.
+    브라우저가 크래시하면 2초 후 자동 재시작한다."""
+    profile_dir = os.path.join(BROWSER_PROFILE_BASE_DIR, f"worker_{worker_id}")
+    os.makedirs(profile_dir, exist_ok=True)
+
+    while True:
+        current_job: _CrawlJob | None = None
+        try:
+            async with async_playwright() as playwright:
+                context = await playwright.chromium.launch_persistent_context(
+                    profile_dir,
+                    channel="chrome",
+                    headless=HEADLESS,
+                    viewport=DEFAULT_VIEWPORT,
+                    locale="ko-KR",
+                    timezone_id="Asia/Seoul",
+                    args=["--start-maximized"],
+                )
+                await setup_resource_blocking(context)
+                print(f"[Worker {worker_id}] 준비 완료 (프로필: {profile_dir})")
+
+                while True:
+                    current_job = await queue.get()
+                    try:
+                        await _capture_urls_with_context(
+                            context, current_job.urls, current_job.output_dir
+                        )
+                        if not current_job.future.done():
+                            current_job.future.set_result(current_job.output_dir)
+                    except Exception as job_exc:
+                        if not current_job.future.done():
+                            current_job.future.set_exception(job_exc)
+                        # 브라우저 자체가 죽은 치명적 오류 → 내부 루프를 깨고
+                        # 외부 except로 전달해 브라우저를 재시작한다.
+                        err_str = str(job_exc).lower()
+                        if any(k in err_str for k in (
+                            "browser has been closed", "target closed",
+                            "connection closed", "target page",
+                        )):
+                            raise
+                    finally:
+                        queue.task_done()
+                        current_job = None
+
+        except Exception as crash_exc:
+            print(f"[Worker {worker_id}] 크래시: {crash_exc!r} — 2초 후 재시작")
+            if current_job is not None and not current_job.future.done():
+                current_job.future.set_exception(crash_exc)
+                try:
+                    queue.task_done()
+                except Exception:
+                    pass
+
+        await asyncio.sleep(2)
+
+
+async def _run_workers(queue: asyncio.Queue) -> None:
+    await asyncio.gather(
+        *[_browser_worker(i, queue) for i in range(NUM_BROWSER_WORKERS)],
+        return_exceptions=True,
+    )
+
+
+def ensure_worker_pool_started() -> None:
+    """워커 풀을 시작한다. 이미 실행 중이면 아무것도 하지 않는다 (멱등).
+    slack_bot.py 모듈 로드 시점에 한 번 호출해 Chrome들을 미리 준비시킨다."""
+    global _pool_loop, _job_queue
+
+    with _pool_lock:
+        if _pool_loop is not None:
+            return
+
+        loop = asyncio.new_event_loop()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=CRAWL_QUEUE_MAXSIZE)
+        _pool_loop = loop
+        _job_queue = queue
+
+        def _run_loop() -> None:
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(_run_workers(queue))
+
+        t = _threading.Thread(target=_run_loop, daemon=True, name="crawler-event-loop")
+        t.start()
+        print(f"[WorkerPool] {NUM_BROWSER_WORKERS}개 워커 시작 (큐 최대 {CRAWL_QUEUE_MAXSIZE})")
+
+
+def _submit_crawl(urls: list, output_dir: str) -> concurrent.futures.Future:
+    """크롤 작업을 워커 풀 큐에 등록한다.
+    큐가 가득 찼으면 QueueFullError를 raise한다.
+    반환된 Future의 .result()를 블로킹 대기하면 output_dir이 반환된다."""
+    if _pool_loop is None or _job_queue is None:
+        raise RuntimeError("ensure_worker_pool_started()를 먼저 호출하세요.")
+
+    if _job_queue.full():
+        raise QueueFullError(
+            f"대기열이 가득 찼습니다 ({CRAWL_QUEUE_MAXSIZE}개 한도). 잠시 후 재시도해 주세요."
+        )
+
+    cf_future: concurrent.futures.Future = concurrent.futures.Future()
+    job = _CrawlJob(urls=urls, output_dir=output_dir, future=cf_future)
+
+    async def _enqueue() -> None:
+        try:
+            _job_queue.put_nowait(job)
+        except asyncio.QueueFull:
+            cf_future.set_exception(
+                QueueFullError("대기열이 가득 찼습니다. 잠시 후 재시도해 주세요.")
+            )
+
+    asyncio.run_coroutine_threadsafe(_enqueue(), _pool_loop).result(timeout=5)
+
+    if cf_future.done() and cf_future.exception():
+        raise cf_future.exception()
+
+    return cf_future
+
+
+def get_pending_count() -> int:
+    """현재 큐에서 대기 중인 작업 수를 반환한다 (처리 중인 작업 제외)."""
+    return _job_queue.qsize() if _job_queue is not None else 0
 
 
 def run_capture_bot(run_ocr_and_extract=True, urls=None, output_dir=None):
