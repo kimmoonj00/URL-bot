@@ -703,7 +703,7 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
 
     if output_dir is None:
         output_dir = os.path.join(
-            _ROOT, "crawl", "output", "capture_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+            _ROOT, "crawl", "output", "cli_" + datetime.now().strftime("%Y%m%d_%H%M%S")
         )
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)

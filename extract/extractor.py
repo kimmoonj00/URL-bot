@@ -2,8 +2,8 @@
 캡처(crawl/crawler.py) + OCR(ocr/paddle_ocr.py) 결과물을 모아
 상품별로 상품명·모델번호·사이즈·사양·가격을 뽑아내는 모듈.
 
-입력: crawler.py가 만든 output/capture_YYYYMMDD_HHMMSS/ 폴더
-출력: extract/output/capture_YYYYMMDD_HHMMSS/{domain}.json (사이트별)
+입력: crawler.py가 만든 output/cli_YYYYMMDD_HHMMSS/ 폴더
+출력: extract/output/cli_YYYYMMDD_HHMMSS/{domain}.json (사이트별)
       같은 도메인의 URL이 여러 개면 한 파일 안에 배열로 포함.
 """
 
@@ -627,9 +627,10 @@ def build_product_record(metadata_path, crawl_dir, ocr_dir=None):
 def build_summary(crawl_dir, ocr_dir=None, extract_dir=None):
     """crawl_dir의 metadata를 읽고 상품 정보를 추출해 사이트별 JSON으로 저장한다.
     같은 도메인 URL이 여러 개면 한 파일 안에 배열로 모은다.
-    extract_dir 미지정 시 extract/output/<run_name>/ 을 자동으로 사용한다."""
+    extract_dir 미지정 시 extract/output/<run_name>/ 을 자동으로 사용한다.
+    slack_*/gui_* 실행은 완료 후 자동으로 archive에 저장하고 temp 폴더를 삭제한다."""
+    run_name = os.path.basename(os.path.abspath(crawl_dir))
     if extract_dir is None:
-        run_name = os.path.basename(os.path.abspath(crawl_dir))
         base_dir = os.path.join(_ROOT, "extract", "output", run_name)
         extract_dir = base_dir
         counter = 1
@@ -689,14 +690,24 @@ def build_summary(crawl_dir, ocr_dir=None, extract_dir=None):
     print()
 
     print(f"상품정보 추출 완료: {len(records)}건 / {len(by_domain)}개 사이트 → {extract_dir}")
+
+    # slack/gui 실행은 자동 archive (temp 폴더 삭제 포함). cli는 디버깅용으로 건드리지 않는다.
+    _source = run_name.split("_")[0] if "_" in run_name else ""
+    if _source in ("slack", "gui"):
+        try:
+            import archive as _archive_mod
+            _archive_mod.save(_source, run_name, ocr_dir is not None, by_domain)
+        except Exception as _e:
+            print(f"[archive] 저장 실패: {_e}")
+
     return by_domain
 
 
 def find_latest_capture_dir(base=None):
     base = base or os.path.join(_ROOT, "crawl", "output")
-    candidates = sorted(glob.glob(os.path.join(base, "capture_*")))
+    candidates = sorted(glob.glob(os.path.join(base, "cli_*")))
     if not candidates:
-        raise FileNotFoundError(f"'{base}'에서 capture_* 폴더를 찾을 수 없습니다. main.py를 먼저 실행하세요.")
+        raise FileNotFoundError(f"'{base}'에서 cli_* 폴더를 찾을 수 없습니다. main.py를 먼저 실행하세요.")
     return candidates[-1]
 
 

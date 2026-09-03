@@ -37,7 +37,7 @@ def _send_dm(client, user_id: str, text: str, blocks=None) -> None:
 
 
 def _src_emoji(source: str) -> str:
-    return "🔵 DOM" if source == "dom" else "🟠 OCR"
+    return "🔵 `dom`" if source == "dom" else "🟠 `ocr`"
 
 
 def _url_preview(urls: list) -> str:
@@ -50,13 +50,12 @@ def _url_preview(urls: list) -> str:
 
 
 
-def _button_value(output_dir: str, ocr_dir, urls: list) -> str:
-    """버튼 value JSON — Slack 2000자 제한 내로 URLs 맞춤"""
-    payload = {"output_dir": output_dir, "ocr_dir": ocr_dir, "urls": urls}
+def _button_value(run_name: str, run_ocr: bool, urls: list) -> str:
+    """버튼 value JSON — run_name만 저장해 경로 의존성 제거, 2000자 제한 준수"""
+    payload = {"run_name": run_name, "run_ocr": run_ocr, "urls": urls}
     encoded = json.dumps(payload, ensure_ascii=False)
     if len(encoded) <= 2000:
         return encoded
-    # URL이 많아 초과하면 줄여서 재시도
     trimmed = urls[:]
     while trimmed and len(encoded) > 2000:
         trimmed.pop()
@@ -206,7 +205,7 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
                 {"type": "actions", "elements": [
                     {"type": "button", "text": {"type": "plain_text", "text": "📊 상품 정보 추출"}, "style": "primary",
                      "action_id": "run_extract",
-                     "value": _button_value(output_dir, ocr_dir, urls)}
+                     "value": _button_value(run_name, run_ocr, urls)}
                 ]}
             ]
         )
@@ -228,11 +227,18 @@ def handle_extract(ack, body, client):
     except (json.JSONDecodeError, KeyError):
         job_data = {}
 
-    output_dir = job_data.get("output_dir")
-    ocr_dir = job_data.get("ocr_dir")
+    run_name = job_data.get("run_name")
+    run_ocr = job_data.get("run_ocr", False)
     urls = job_data.get("urls", [])
 
-    if not output_dir:
+    if not run_name:
+        _send_dm(client, user_id, "❌ 이 버튼은 만료되었습니다. 새 작업을 시작해주세요.")
+        return
+
+    output_dir = os.path.join(_ROOT, "crawl", "output", run_name)
+    ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name) if run_ocr else None
+
+    if not os.path.isdir(output_dir):
         _send_dm(client, user_id, "❌ 크롤링 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
         return
 
@@ -263,7 +269,7 @@ def _run_extract(user_id: str, output_dir: str, ocr_dir, client, extract_key=Non
 
         _send_dm(client, user_id, text="추출 완료",
             blocks=[{"type": "context", "elements": [{"type": "mrkdwn",
-                "text": "🔵 *DOM* — HTML 구조·표에서 추출    🟠 *OCR* — 이미지 인식 (오탈자 가능성 있음)"}]}])
+                "text": "🔵 `dom` — HTML 구조·표에서 추출    🟠 `ocr` — 이미지 인식 (오탈자 가능성 있음)"}]}])
 
         for rec in records:
             _send_dm(client, user_id, text=rec.get("상품명", "결과"), blocks=_result_blocks(rec))
