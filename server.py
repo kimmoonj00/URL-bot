@@ -128,7 +128,8 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
         from crawl.crawler import run_capture_bot
 
         # GUI 실행은 gui_날짜/ 접두사 — main.py의 cli_날짜/와 구별해 TTL 정리 대상임
-        gui_run_name = "gui_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        _now = datetime.now()
+        gui_run_name = "gui_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         output_dir = os.path.join(_ROOT, "crawl", "output", gui_run_name)
         run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
         job["output_dir"] = output_dir

@@ -177,7 +177,8 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
     try:
         from crawl.crawler import _run_capture_bot_async
 
-        run_name = "slack_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        _now = datetime.now()
+        run_name = "slack_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         output_dir = os.path.join(_ROOT, "crawl", "output", run_name)
         ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name) if run_ocr else None
 
