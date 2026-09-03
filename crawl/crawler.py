@@ -702,8 +702,10 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
         return None
 
     if output_dir is None:
+        _now = datetime.now()
         output_dir = os.path.join(
-            _ROOT, "crawl", "output", "capture_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+            _ROOT, "crawl", "output",
+            "cli_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         )
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(BROWSER_PROFILE_DIR, exist_ok=True)
@@ -773,7 +775,7 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
         from ocr import paddle_ocr
         from extract import extractor
 
-        run_name = os.path.basename(output_dir)  # "capture_YYYYMMDD_HHMMSS"
+        run_name = os.path.basename(output_dir)  # "cli_YYYYMMDD_HHMMSS"
         ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name)
         extract_dir = os.path.join(_ROOT, "extract", "output", run_name)
 

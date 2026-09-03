@@ -117,9 +117,9 @@ def get_engine():
 
 def find_latest_capture_dir(base=None):
     base = base or config.IMAGE_DIR
-    candidates = sorted(glob.glob(os.path.join(base, "capture_*")))
+    candidates = sorted(glob.glob(os.path.join(base, "cli_*")))
     if not candidates:
-        raise FileNotFoundError(f"'{base}'에서 capture_* 폴더를 찾을 수 없습니다. main.py를 먼저 실행하세요.")
+        raise FileNotFoundError(f"'{base}'에서 cli_* 폴더를 찾을 수 없습니다. main.py를 먼저 실행하세요.")
     return candidates[-1]
 
 

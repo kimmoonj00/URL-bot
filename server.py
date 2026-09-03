@@ -66,7 +66,7 @@ def _cleanup_loop():
 
 
 def _cleanup_gui_dirs():
-    """gui_* 디렉토리만 정리한다. capture_* (main.py 결과)는 절대 건드리지 않는다."""
+    """gui_* 디렉토리만 정리한다. cli_* (main.py 결과)는 절대 건드리지 않는다."""
     for base in (
         os.path.join(_ROOT, "crawl", "output"),
         os.path.join(_ROOT, "ocr", "output"),
@@ -160,8 +160,9 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
     try:
         from crawl.crawler import run_capture_bot
 
-        # GUI 실행은 gui_날짜/ 접두사 — main.py의 capture_날짜/와 구별해 TTL 정리 대상임
-        gui_run_name = "gui_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        # GUI 실행은 gui_날짜/ 접두사 — main.py의 cli_날짜/와 구별해 TTL 정리 대상임
+        _now = datetime.now()
+        gui_run_name = "gui_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         output_dir = os.path.join(_ROOT, "crawl", "output", gui_run_name)
         run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
         job["output_dir"] = output_dir

@@ -12,3 +12,10 @@ venv/
 
 # Chrome 영구 프로필 (캐시/세션 파일 수백 개)
 chrome_profiles/
+
+# 크롤/OCR/추출 결과물 및 아카이브 (데이터 파일)
+crawl/output/
+ocr/output/
+ocr/cache/
+extract/output/
+archive/
