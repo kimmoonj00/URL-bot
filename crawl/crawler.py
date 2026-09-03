@@ -773,7 +773,7 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
         from ocr import paddle_ocr
         from extract import extractor
 
-        run_name = os.path.basename(output_dir)  # "capture_YYYYMMDD_HHMMSS"
+        run_name = os.path.basename(output_dir)  # "cli_YYYYMMDD_HHMMSS"
         ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name)
         extract_dir = os.path.join(_ROOT, "extract", "output", run_name)
 

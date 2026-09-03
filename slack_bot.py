@@ -229,7 +229,6 @@ def handle_extract(ack, body, client):
 
     run_name = job_data.get("run_name")
     run_ocr = job_data.get("run_ocr", False)
-    urls = job_data.get("urls", [])
 
     if not run_name:
         _send_dm(client, user_id, "❌ 이 버튼은 만료되었습니다. 새 작업을 시작해주세요.")
