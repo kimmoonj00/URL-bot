@@ -26,5 +26,5 @@ EXTRACTION_ENGINE = "gpt"
 # 프로젝트 루트의 .env 파일에 OPENAI_API_KEY=sk-... 를 넣어두면 자동으로 읽힙니다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = "gpt-4o-mini"
-OPENAI_MAX_TOKENS = 3000
+OPENAI_MAX_TOKENS = 6000
 OPENAI_MAX_SOURCE_CHARS = 20000
