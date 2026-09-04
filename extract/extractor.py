@@ -742,12 +742,18 @@ def build_summary_from_archive(archive_base: str) -> dict:
             context_text = ""
             ocr_text = ""
 
+        conf_data = _read_json(os.path.join(folder, "ocr_confidence.json"), None)
+        ocr_confidence = conf_data.get("avg_confidence") if conf_data else None
+
         metadata = {"url": entry_url, "title": title, "status": "captured"}
         try:
             record = build_record_with_gpt(entry_url, metadata, context_text, ocr_text)
         except Exception as error:
             print(f"   ⚠️  GPT 추출 실패({error}) → 규칙 기반으로 대체합니다: {entry_url}")
             record = build_record_with_rules(entry_url, metadata, hostname, context_text, "", [], ocr_text)
+
+        if ocr_confidence is not None:
+            record["OCR_평균신뢰도"] = ocr_confidence
 
         by_domain.setdefault(hostname, []).append(record)
 

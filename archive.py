@@ -184,6 +184,14 @@ def save_crawl(source: str, run_name: str, run_ocr: bool, crawl_dir: str, ocr_di
             if os.path.isfile(src_md):
                 shutil.copy2(src_md, os.path.join(domain_archive, "product.md"))
 
+            # OCR 평균 신뢰도(ocr_confidence.json)도 함께 보관 — temp ocr_dir을
+            # 곧 삭제하므로 여기서 복사해두지 않으면 이후 추출 단계에서
+            # 조회할 방법이 없어진다.
+            if ocr_dir and os.path.isdir(ocr_dir):
+                conf_src = os.path.join(ocr_dir, entry.name, "ocr_confidence.json")
+                if os.path.isfile(conf_src):
+                    shutil.copy2(conf_src, os.path.join(domain_archive, "ocr_confidence.json"))
+
             image_urls = []
             assets_path = os.path.join(crawl_dir, entry.name, "assets.json")
             if os.path.isfile(assets_path):
