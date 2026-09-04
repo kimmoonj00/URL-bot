@@ -47,6 +47,8 @@ def _cleanup_gui_dirs():
 @app.on_event("startup")
 async def start_cleanup():
     _cleanup_gui_dirs()  # 이전 세션 크래시로 남은 gui_* temp 파일 정리
+    from crawl.crawler import ensure_worker_pool_started
+    ensure_worker_pool_started()
 
 
 class RunRequest(BaseModel):
@@ -138,12 +140,21 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
     _LogCapture.set_queue(log_q)
 
     try:
-        from crawl.crawler import run_capture_bot
+        from crawl.crawler import QueueFullError, _submit_crawl
 
         _now = datetime.now()
         gui_run_name = "gui_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         output_dir = os.path.join(_ROOT, "crawl", "output", gui_run_name)
-        run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
+
+        try:
+            fut = _submit_crawl(urls, output_dir)
+        except QueueFullError as e:
+            log_q.put(f"[오류] {e}")
+            job["status"] = "error"
+            job["error"] = str(e)
+            return
+
+        fut.result(timeout=600)
 
         ocr_dir = None
         if run_ocr:

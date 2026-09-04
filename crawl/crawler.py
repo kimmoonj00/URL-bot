@@ -802,7 +802,7 @@ async def _run_capture_bot_async(run_ocr_and_extract=True, urls=None, output_dir
     return output_dir
 
 
-# ── 브라우저 워커 풀 (Slack 봇 전용) ─────────────────────────────────────────────
+# ── 브라우저 워커 풀 (GUI · Slack 공용) ───────────────────────────────────────────
 
 
 class QueueFullError(Exception):
@@ -887,7 +887,7 @@ async def _run_workers(queue: asyncio.Queue) -> None:
 
 def ensure_worker_pool_started() -> None:
     """워커 풀을 시작한다. 이미 실행 중이면 아무것도 하지 않는다 (멱등).
-    slack_bot.py 모듈 로드 시점에 한 번 호출해 Chrome들을 미리 준비시킨다."""
+    slack_bot.py / server.py 모듈 로드 시점에 한 번 호출해 Chrome들을 미리 준비시킨다."""
     global _pool_loop, _job_queue
 
     with _pool_lock:
