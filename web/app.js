@@ -283,13 +283,7 @@ function sourceBadge(source) {
 
 function renderExtractResults(results) {
   extractResultSection.hidden = false;
-  const legend = `
-    <div class="source-legend">
-      <span class="badge badge-dom">DOM</span> HTML 구조·표에서 추출
-      <span class="legend-sep">·</span>
-      <span class="badge badge-ocr">OCR</span> 이미지 인식 — 오탈자 가능성 있음
-    </div>`;
-  extractResultContent.innerHTML = legend + results.map(r => {
+  extractResultContent.innerHTML = results.map(r => {
     const variants = r['variants'] || [];
     const variantsHtml = variants.length
       ? `<table class="extract-table">
@@ -307,12 +301,18 @@ function renderExtractResults(results) {
 
     const manufacturer = r['제조원'];
     const mfrSource = r['제조원_source'] || 'dom';
+    const ocrConf = r['OCR_평균신뢰도'];
 
     return `
       <div class="extract-card">
         <div class="extract-product-name">${escHtml(r['상품명'] || '(상품명 없음)')}</div>
         ${manufacturer ? `<div class="extract-manufacturer">제조원: ${escHtml(manufacturer)} ${sourceBadge(mfrSource)}</div>` : ''}
         <a class="result-url-link" href="${escHtml(r['URL'])}" target="_blank" rel="noopener">${escHtml(r['URL'])}</a>
+        <div class="source-legend">
+          <span class="badge badge-dom">DOM</span> HTML 구조·표에서 추출
+          <span class="legend-sep">·</span>
+          <span class="badge badge-ocr">OCR${ocrConf != null ? ` (신뢰도 ${ocrConf}%)` : ''}</span> 이미지 인식 — 오탈자 가능성 있음
+        </div>
         ${variantsHtml}
       </div>
     `;

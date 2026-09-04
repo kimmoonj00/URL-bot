@@ -48,7 +48,7 @@ def _legend_line(ocr_confidence) -> str:
     """DOM/OCR 범례. OCR 신뢰도는 항목 하나하나가 아니라 그 상품 이미지
     전체의 PaddleOCR 평균 인식 신뢰도라서, 개별 항목이 아니라 여기 범례에
     한 번만 붙인다."""
-    ocr_label = f"🟠 *OCR {ocr_confidence}%*" if ocr_confidence is not None else "🟠 *OCR*"
+    ocr_label = f"🟠 *OCR (신뢰도 {ocr_confidence}%)*" if ocr_confidence is not None else "🟠 *OCR*"
     return f"🔵 *DOM* — HTML 구조·표에서 추출    {ocr_label} — 이미지 인식 (오탈자 가능성 있음)"
 
 
@@ -87,7 +87,7 @@ def _home_view() -> dict:
             {"type": "divider"},
             {"type": "section", "text": {"type": "mrkdwn", "text": "📥  *1단계: 상품 정보 수집*\n웹페이지 내용을 읽어옵니다 (약 30초)"}},
             {"type": "section", "text": {"type": "mrkdwn", "text": "↓"}},
-            {"type": "section", "text": {"type": "mrkdwn", "text": "🖼️  *2단계: 이미지 분석* _(선택)_\n이미지 속 텍스트까지 인식합니다 (추가 1~3분)"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "🖼️  *2단계: 이미지 분석 (OCR)* _(선택)_\n이미지 속 텍스트까지 인식합니다 (추가 1~3분)"}},
             {"type": "section", "text": {"type": "mrkdwn", "text": "↓"}},
             {"type": "section", "text": {"type": "mrkdwn", "text": "🔍  *3단계: 정보 분석*\n상품명·모델번호·규격을 자동으로 정리합니다"}},
             {"type": "divider"},
@@ -139,7 +139,13 @@ def open_run_modal(ack, body, client):
                         "action_id": "ocr_checkbox",
                         "options": [
                             {
-                                "text": {"type": "mrkdwn", "text": "*OCR 포함* — 이미지 속 텍스트도 인식"},
+                                "text": {"type": "mrkdwn", "text": "*이미지 분석 포함* — 이미지 속 텍스트도 인식"},
+                                "value": "ocr"
+                            }
+                        ],
+                        "initial_options": [
+                            {
+                                "text": {"type": "mrkdwn", "text": "*이미지 분석 포함* — 이미지 속 텍스트도 인식"},
                                 "value": "ocr"
                             }
                         ]
@@ -197,7 +203,7 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
                  "⚠️ 현재 사용 인원이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
         return
 
-    ocr_tag = " (OCR 포함)" if run_ocr else ""
+    ocr_tag = " (이미지 분석 포함)" if run_ocr else ""
     busy_notice = "\n현재 사용 인원이 많아 시간이 조금 더 걸릴 수 있습니다." if pending_before > 0 else ""
     _send_dm(
         client, user_id,
@@ -234,7 +240,7 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
         _send_dm(client, user_id, f"❌ 저장 중 오류 발생:\n`{e}`")
         return
 
-    ocr_tag = " (OCR 포함)" if run_ocr else ""
+    ocr_tag = " (이미지 분석 포함)" if run_ocr else ""
     _send_dm(
         client, user_id,
         text=f"✅ 정보 수집 완료{ocr_tag}",
