@@ -5,10 +5,9 @@ import queue
 import shutil
 import sys
 import threading
-import time
 import urllib.request
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     # 한국어 Windows(cp949) 콘솔 인코딩으로는 crawl/crawler.py 등이 출력하는
@@ -32,45 +31,11 @@ app = FastAPI()
 # 메모리 내 job 저장소 (서버 재시작 시 초기화됨)
 jobs: dict = {}
 
-JOB_TTL_HOURS = 1
-_CLEANUP_INTERVAL = 600  # 10분마다 체크
-
-
-def _delete_job_files(job: dict):
-    for key in ("output_dir", "ocr_dir"):
-        d = job.get(key)
-        if d and os.path.isdir(d):
-            shutil.rmtree(d, ignore_errors=True)
-    if job.get("output_dir"):
-        run_name = os.path.basename(job["output_dir"])
-        extract_dir = os.path.join(_ROOT, "extract", "output", run_name)
-        if os.path.isdir(extract_dir):
-            shutil.rmtree(extract_dir, ignore_errors=True)
-
-
-def _cleanup_loop():
-    while True:
-        time.sleep(_CLEANUP_INTERVAL)
-        cutoff = datetime.now() - timedelta(hours=JOB_TTL_HOURS)
-        expired = [
-            jid for jid, j in list(jobs.items())
-            if j["status"] in ("done", "error")
-            and datetime.fromisoformat(j["created_at"]) < cutoff
-        ]
-        for jid in expired:
-            job = jobs.pop(jid, None)
-            if job:
-                _delete_job_files(job)
-        if expired:
-            print(f"[cleanup] {len(expired)}개 job 만료 삭제 (TTL {JOB_TTL_HOURS}h)")
-
-
 def _cleanup_gui_dirs():
     """gui_* 디렉토리만 정리한다. cli_* (main.py 결과)는 절대 건드리지 않는다."""
     for base in (
         os.path.join(_ROOT, "crawl", "output"),
         os.path.join(_ROOT, "ocr", "output"),
-        os.path.join(_ROOT, "extract", "output"),
     ):
         if not os.path.isdir(base):
             continue
@@ -81,8 +46,7 @@ def _cleanup_gui_dirs():
 
 @app.on_event("startup")
 async def start_cleanup():
-    _cleanup_gui_dirs()  # 이전 세션 gui_* 파일 정리
-    threading.Thread(target=_cleanup_loop, daemon=True).start()
+    _cleanup_gui_dirs()  # 이전 세션 크래시로 남은 gui_* temp 파일 정리
 
 
 class RunRequest(BaseModel):
@@ -180,14 +144,16 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
         gui_run_name = "gui_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         output_dir = os.path.join(_ROOT, "crawl", "output", gui_run_name)
         run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
-        job["output_dir"] = output_dir
 
-        if run_ocr and output_dir:
+        ocr_dir = None
+        if run_ocr:
             from ocr import paddle_ocr
-
             ocr_dir = os.path.join(_ROOT, "ocr", "output", gui_run_name)
             paddle_ocr.ocr_capture_dir(output_dir, ocr_dir)
-            job["ocr_dir"] = ocr_dir
+
+        import archive as _archive_mod
+        archive_dir = _archive_mod.save_crawl("gui", gui_run_name, run_ocr, output_dir, ocr_dir)
+        job["archive_dir"] = archive_dir
 
         job["status"] = "done"
         url_summary = urls[0] + (f" 외 {len(urls) - 1}개" if len(urls) > 1 else "")
@@ -216,8 +182,7 @@ async def run_job(req: RunRequest):
         "urls": urls,
         "ocr": req.ocr,
         "log_queue": queue.Queue(),
-        "output_dir": None,
-        "ocr_dir": None,
+        "archive_dir": None,
         "error": None,
         "created_at": datetime.now().isoformat(),
     }
@@ -282,43 +247,33 @@ async def job_results(job_id: str):
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
 
-    output_dir = jobs[job_id].get("output_dir")
-    ocr_dir = jobs[job_id].get("ocr_dir")
-    if not output_dir or not os.path.isdir(output_dir):
+    archive_dir = jobs[job_id].get("archive_dir")
+    if not archive_dir or not os.path.isdir(archive_dir):
         raise HTTPException(status_code=404, detail="결과 디렉터리가 없습니다. 크롤링이 완료되지 않았습니다.")
 
     results = []
-    for subdir in sorted(os.listdir(output_dir)):
-        subpath = os.path.join(output_dir, subdir)
-        if not os.path.isdir(subpath):
+    for folder_name in sorted(os.listdir(archive_dir)):
+        folder = os.path.join(archive_dir, folder_name)
+        if not os.path.isdir(folder):
+            continue
+        result_path = os.path.join(folder, "result.json")
+        if not os.path.isfile(result_path):
             continue
 
-        meta_path = os.path.join(subpath, "metadata.json")
-        if not os.path.exists(meta_path):
-            continue
+        with open(result_path, encoding="utf-8") as f:
+            result_data = json.load(f)
 
-        with open(meta_path, encoding="utf-8") as f:
-            meta = json.load(f)
-
-        # OCR을 돌렸으면 crawl의 context.md + OCR 텍스트가 합쳐진 product.md가
-        # ocr_dir 쪽에 있다. 있으면 그걸 우선 보여주고, 없으면 crawl 단계의
-        # context.md(DOM/표만 있음)로 대체한다.
         markdown = ""
-        product_md_path = os.path.join(ocr_dir, subdir, "product.md") if ocr_dir else None
-        if product_md_path and os.path.exists(product_md_path):
+        product_md_path = os.path.join(folder, "product.md")
+        if os.path.isfile(product_md_path):
             with open(product_md_path, encoding="utf-8") as f:
                 markdown = f.read()
-        else:
-            ctx_path = os.path.join(subpath, "context.md")
-            if os.path.exists(ctx_path):
-                with open(ctx_path, encoding="utf-8") as f:
-                    markdown = f.read()
 
         results.append({
-            "url": meta.get("url", ""),
-            "title": meta.get("title", ""),
-            "status": meta.get("status", ""),
-            "elapsed_seconds": meta.get("elapsed_seconds", 0),
+            "url": result_data.get("url", ""),
+            "title": result_data.get("title", ""),
+            "status": result_data.get("status", "captured"),
+            "elapsed_seconds": result_data.get("elapsed_seconds", 0),
             "markdown": markdown,
         })
 
@@ -330,21 +285,22 @@ async def run_extract(req: ExtractRequest):
     if req.job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
 
-    output_dir = jobs[req.job_id].get("output_dir")
-    ocr_dir = jobs[req.job_id].get("ocr_dir")
+    archive_dir = jobs[req.job_id].get("archive_dir")
 
-    if not output_dir or not os.path.isdir(output_dir):
+    if not archive_dir or not os.path.isdir(archive_dir):
         raise HTTPException(status_code=400, detail="크롤링 결과가 없습니다. 먼저 크롤링을 실행하세요.")
 
     def _run():
-        # .env 파일 로드 (python-dotenv 있으면)
         try:
             from dotenv import load_dotenv
             load_dotenv(os.path.join(_ROOT, ".env"))
         except ImportError:
             pass
-        from extract.extractor import build_summary
-        return build_summary(output_dir, ocr_dir=ocr_dir)
+        from extract.extractor import build_summary_from_archive
+        import archive as _archive_mod
+        by_domain = build_summary_from_archive(archive_dir)
+        _archive_mod.update_extract(archive_dir, by_domain)
+        return by_domain
 
     try:
         by_domain = await asyncio.to_thread(_run)

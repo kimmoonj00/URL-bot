@@ -20,7 +20,7 @@ app = App(token=os.environ["SLACK_BOT_TOKEN"])
 
 _lock = threading.Lock()
 _dm_cache: dict = {}       # user_id → DM channel_id
-_extracting: set = set()   # output_dir — 중복 Extract 방지
+_extracting: set = set()   # archive_dir — 중복 Extract 방지
 
 # 봇 시작 시 Chrome 워커 풀을 미리 준비한다.
 # 첫 요청 전에 모든 워커가 대기 상태가 되어 응답 지연을 최소화한다.
@@ -62,9 +62,9 @@ def _url_preview(urls: list) -> str:
 
 
 
-def _button_value(run_name: str, run_ocr: bool, urls: list) -> str:
-    """버튼 value JSON — run_name만 저장해 경로 의존성 제거, 2000자 제한 준수"""
-    payload = {"run_name": run_name, "run_ocr": run_ocr, "urls": urls}
+def _button_value(archive_dir: str, urls: list) -> str:
+    """버튼 value JSON — archive_dir 저장, 2000자 제한 준수"""
+    payload = {"archive_dir": archive_dir, "urls": urls}
     encoded = json.dumps(payload, ensure_ascii=False)
     if len(encoded) <= 2000:
         return encoded
@@ -219,6 +219,15 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
             _send_dm(client, user_id, f"❌ OCR 처리 중 오류 발생:\n`{e}`")
             return
 
+    # crawl/OCR 결과를 archive에 저장 (temp 폴더 삭제 포함)
+    try:
+        import archive as _archive_mod
+        archive_dir = _archive_mod.save_crawl("slack", run_name, run_ocr, output_dir, ocr_dir)
+    except Exception as e:
+        traceback.print_exc()
+        _send_dm(client, user_id, f"❌ 저장 중 오류 발생:\n`{e}`")
+        return
+
     ocr_tag = " (OCR 포함)" if run_ocr else ""
     _send_dm(
         client, user_id,
@@ -230,7 +239,7 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
             {"type": "actions", "elements": [
                 {"type": "button", "text": {"type": "plain_text", "text": "📊 상품 정보 추출"}, "style": "primary",
                  "action_id": "run_extract",
-                 "value": _button_value(run_name, run_ocr, urls)}
+                 "value": _button_value(archive_dir, urls)}
             ]}
         ]
     )
@@ -248,49 +257,34 @@ def handle_extract(ack, body, client):
     except (json.JSONDecodeError, KeyError):
         job_data = {}
 
-    run_name = job_data.get("run_name")
-    run_ocr = job_data.get("run_ocr", False)
+    archive_dir = job_data.get("archive_dir")
 
-    if not run_name:
+    if not archive_dir:
         _send_dm(client, user_id, "❌ 이 버튼은 만료되었습니다. 새 작업을 시작해주세요.")
         return
 
-    output_dir = os.path.join(_ROOT, "crawl", "output", run_name)
-    ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name) if run_ocr else None
-
-    if not os.path.isdir(output_dir):
-        # archive.save()가 완료 후 crawl 폴더를 삭제하므로 이미 추출된 경우 여기에 해당
-        index_path = os.path.join(_ROOT, "archive", "index.json")
-        already_archived = False
-        try:
-            if os.path.isfile(index_path):
-                with open(index_path, encoding="utf-8") as _f:
-                    _idx = json.load(_f)
-                already_archived = any(e.get("time") in run_name for e in _idx)
-        except Exception:
-            pass
-        if already_archived:
-            _send_dm(client, user_id, "✅ 이미 추출된 결과입니다. 새 작업을 시작하거나 아카이브를 확인해주세요.")
-        else:
-            _send_dm(client, user_id, "❌ 크롤링 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
+    if not os.path.isdir(archive_dir):
+        _send_dm(client, user_id, "❌ 저장된 크롤링 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
         return
 
     with _lock:
-        if output_dir in _extracting:
+        if archive_dir in _extracting:
             return
-        _extracting.add(output_dir)
+        _extracting.add(archive_dir)
 
     threading.Thread(
         target=_run_extract,
-        args=(user_id, output_dir, ocr_dir, client, output_dir),
+        args=(user_id, archive_dir, client, archive_dir),
         daemon=True,
     ).start()
 
 
-def _run_extract(user_id: str, output_dir: str, ocr_dir, client, extract_key=None) -> None:
+def _run_extract(user_id: str, archive_dir: str, client, extract_key=None) -> None:
     try:
-        from extract.extractor import build_summary
-        by_domain = build_summary(output_dir, ocr_dir=ocr_dir)
+        from extract.extractor import build_summary_from_archive
+        import archive as _archive_mod
+        by_domain = build_summary_from_archive(archive_dir)
+        _archive_mod.update_extract(archive_dir, by_domain)
 
         records = []
         for domain_records in by_domain.values():

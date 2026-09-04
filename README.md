@@ -7,13 +7,14 @@
 ## 목차
 
 1. [파이프라인 개요](#1-파이프라인-개요)
-2. [폴더 구조](#2-폴더-구조)
-3. [설치](#3-설치)
-4. [사용 방법](#4-사용-방법)
-5. [각 단계 상세](#5-각-단계-상세)
-6. [주요 설정](#6-주요-설정)
-7. [성능 측정](#7-성능-측정)
-8. [슬랙봇](#8-슬랙봇)
+2. [데이터 저장 흐름](#2-데이터-저장-흐름)
+3. [폴더 구조](#3-폴더-구조)
+4. [설치](#4-설치)
+5. [사용 방법](#5-사용-방법)
+6. [각 단계 상세](#6-각-단계-상세)
+7. [주요 설정](#7-주요-설정)
+8. [성능 측정](#8-성능-측정)
+9. [슬랙봇](#9-슬랙봇)
 
 ---
 
@@ -50,9 +51,69 @@ URL 입력 (GUI 또는 crawl/urls.txt)
 
 ---
 
-## 2. 폴더 구조
+## 2. 데이터 저장 흐름
 
-> 크롤링·OCR·추출 결과는 각 단계 폴더의 `output/` 아래에 실행 날짜별로 저장됩니다.
+> GUI와 슬랙봇 모두 동일한 저장 흐름을 따릅니다.  
+> **크롤링·OCR 완료 직후 archive에 영구 저장**되며, Extract는 언제든 다시 실행할 수 있습니다.
+
+### 1단계 — Crawl 완료 (임시 저장)
+
+```
+crawl/output/{prefix}_날짜시간/
+  {N}_{domain}/
+    metadata.json    ← URL, title, status, elapsed_seconds
+    context.md       ← DOM 텍스트
+    assets.json      ← 이미지 목록
+    assets/          ← 이미지 파일들
+```
+
+### 2단계 — OCR 완료 (임시 저장, OCR 선택 시)
+
+```
+ocr/output/{prefix}_날짜시간/
+  {N}_{domain}/
+    product.md            ← context.md + 이미지 OCR 텍스트 합본
+    ocr_confidence.json
+ocr/cache/{prefix}_날짜시간/   ← 타일 캐시
+```
+
+### 3단계 — archive 저장 (영구) + 임시 폴더 전부 삭제
+
+> Crawl(+OCR)이 끝나면 **즉시** archive에 저장합니다. Extract를 실행하지 않아도 데이터는 유지됩니다.
+
+```
+archive/{gui|slack}/YYYY-MM-DD/HHMMSSmmm/
+  meta.json                        ← run_name, source, run_ocr, urls
+  {domain}_{uuid}/
+    product.md                     ← OCR 있으면 OCR 합본, 없으면 context.md
+    result.json                    ← domain, url, title, images, product: {}
+
+← 동시에 삭제:
+   crawl/output/{prefix}_날짜시간/
+   ocr/output/{prefix}_날짜시간/
+   ocr/cache/{prefix}_날짜시간/
+```
+
+### 4단계 — Extract 실행 (archive 업데이트)
+
+> archive의 `product.md`를 읽어 GPT를 호출합니다.  
+> 결과는 같은 폴더의 `result.json`에 업데이트되고, `archive/index.json`에 추가됩니다.
+
+```
+archive/{gui|slack}/YYYY-MM-DD/HHMMSSmmm/
+  {domain}_{uuid}/
+    product.md        ← 변경 없음
+    result.json       ← product 필드에 LLM 결과 채워짐
+
+archive/index.json    ← 전체 추출 이력에 추가
+```
+
+---
+
+## 3. 폴더 구조
+
+> `archive/`가 최종 영구 저장소입니다. `crawl/output/`, `ocr/output/`은 처리 중 임시 폴더로, archive 저장 후 자동 삭제됩니다.  
+> `extract/output/`은 CLI 직접 실행 시에만 사용됩니다.
 
 ```
 URL-bot/
@@ -94,6 +155,17 @@ URL-bot/
 │       └── {run_name}/
 │           └── {domain}.json        # 추출 결과
 │
+├── archive/
+│   ├── index.json               # 전체 추출 이력 인덱스
+│   ├── gui/                     # GUI 실행 결과
+│   │   └── YYYY-MM-DD/
+│   │       └── HHMMSSmmm/
+│   │           ├── meta.json
+│   │           └── {domain}_{uuid}/
+│   │               ├── product.md    # 크롤링+OCR 텍스트
+│   │               └── result.json   # 추출 결과 (Extract 후 채워짐)
+│   └── slack/                   # 슬랙봇 실행 결과 (동일 구조)
+│
 ├── .env                         # API 키 (git 제외, 직접 생성 필요)
 ├── requirements.txt
 └── .gitignore
@@ -101,7 +173,7 @@ URL-bot/
 
 ---
 
-## 3. 설치
+## 4. 설치
 
 > Python 패키지 설치와 OpenAI API 키 설정 두 가지만 하면 바로 사용할 수 있습니다.
 
@@ -124,7 +196,7 @@ SLACK_APP_TOKEN=xapp-...
 
 ---
 
-## 4. 사용 방법
+## 5. 사용 방법
 
 ### 방법 A: 웹 GUI
 
@@ -194,7 +266,7 @@ python extract/extractor.py  # 3단계: 추출
 
 ---
 
-## 5. 각 단계 상세
+## 6. 각 단계 상세
 
 ### 1단계: 크롤링 (crawl/crawler.py)
 
@@ -252,7 +324,7 @@ python extract/extractor.py  # 3단계: 추출
 
 ---
 
-## 6. 주요 설정
+## 7. 주요 설정
 
 > 각 단계의 `config.py`에서 동작을 조정할 수 있습니다.
 
@@ -264,7 +336,7 @@ python extract/extractor.py  # 3단계: 추출
 
 ---
 
-## 7. 성능 측정 (수정 예정)
+## 8. 성능 측정 (수정 예정)
 
 > 환경: Windows 11, Chrome (non-headless), Intel i5-1135G7 / RAM 16GB / 내장그래픽(CPU 추론)
 
@@ -281,7 +353,7 @@ python extract/extractor.py  # 3단계: 추출
 
 ---
 
-## 8. 슬랙봇
+## 9. 슬랙봇
 
 > Slack 앱을 설치하면 브라우저 없이 슬랙에서 바로 URL을 입력하고 결과를 받을 수 있습니다.  
 > Socket Mode로 동작하므로 외부 서버 없이 로컬에서 실행됩니다.

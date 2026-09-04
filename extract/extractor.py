@@ -713,6 +713,47 @@ def build_summary(crawl_dir, ocr_dir=None, extract_dir=None):
     return by_domain
 
 
+def build_summary_from_archive(archive_base: str) -> dict:
+    """archive의 product.md를 읽어 LLM 추출 후 by_domain dict 반환.
+    server.py GUI extract 경로에서 사용 (temp crawl/ocr 폴더 없이도 동작)."""
+    by_domain = {}
+    for folder_name in sorted(os.listdir(archive_base)):
+        folder = os.path.join(archive_base, folder_name)
+        if not os.path.isdir(folder):
+            continue
+        result_path = os.path.join(folder, "result.json")
+        product_md_path = os.path.join(folder, "product.md")
+        if not os.path.isfile(result_path):
+            continue
+
+        result_data = _read_json(result_path, {})
+        if result_data.get("status") != "captured":
+            continue
+        entry_url = result_data.get("url", "")
+        title = result_data.get("title", "")
+        hostname = result_data.get("domain", "") or (urlparse(entry_url).hostname or "")
+
+        product_md = _read_text(product_md_path)
+        if product_md:
+            parts = product_md.split("\n## 이미지 OCR", 1)
+            context_text = parts[0].strip()
+            ocr_text = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            context_text = ""
+            ocr_text = ""
+
+        metadata = {"url": entry_url, "title": title, "status": "captured"}
+        try:
+            record = build_record_with_gpt(entry_url, metadata, context_text, ocr_text)
+        except Exception as error:
+            print(f"   ⚠️  GPT 추출 실패({error}) → 규칙 기반으로 대체합니다: {entry_url}")
+            record = build_record_with_rules(entry_url, metadata, hostname, context_text, "", [], ocr_text)
+
+        by_domain.setdefault(hostname, []).append(record)
+
+    return by_domain
+
+
 def find_latest_capture_dir(base=None):
     base = base or os.path.join(_ROOT, "crawl", "output")
     candidates = sorted(glob.glob(os.path.join(base, "cli_*")))

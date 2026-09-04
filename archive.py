@@ -130,3 +130,149 @@ def save(source: str, run_name: str, run_ocr: bool, by_domain: dict) -> str:
             shutil.rmtree(d, ignore_errors=True)
 
     return archive_base
+
+
+def save_crawl(source: str, run_name: str, run_ocr: bool, crawl_dir: str, ocr_dir: str = None) -> str:
+    """Extract 없이 Crawl(+OCR) 결과를 archive에 저장. result.json의 product는 {} 로 저장.
+    temp 폴더(crawl/ocr output)는 저장 후 삭제한다."""
+    parts = run_name.split("_")
+    if len(parts) < 3:
+        raise ValueError(f"run_name 형식 오류: {run_name}")
+    raw_date, raw_time = parts[1], parts[2]
+    date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+
+    archive_base = os.path.join(_ROOT, "archive", source, date_str, raw_time)
+    os.makedirs(archive_base, exist_ok=True)
+
+    all_urls = []
+
+    if os.path.isdir(crawl_dir):
+        for entry in sorted(os.scandir(crawl_dir), key=lambda e: e.name):
+            if not entry.is_dir():
+                continue
+            slug_parts = entry.name.split("_", 1)
+            if len(slug_parts) < 2:
+                continue
+            domain_slug = slug_parts[1]
+            hostname = domain_slug.replace("_", ".")
+
+            meta_path = os.path.join(crawl_dir, entry.name, "metadata.json")
+            entry_url = ""
+            title = ""
+            status = ""
+            elapsed = 0
+            if os.path.isfile(meta_path):
+                with open(meta_path, encoding="utf-8") as f:
+                    meta_data = json.load(f)
+                entry_url = meta_data.get("url", "")
+                title = meta_data.get("title", "")
+                status = meta_data.get("status", "")
+                elapsed = meta_data.get("elapsed_seconds", 0)
+
+            if entry_url:
+                all_urls.append(entry_url)
+
+            short_id = _uuid.uuid4().hex[:6]
+            folder_name = f"{domain_slug}_{short_id}"
+            domain_archive = os.path.join(archive_base, folder_name)
+            os.makedirs(domain_archive, exist_ok=True)
+
+            src_md = (os.path.join(ocr_dir, entry.name, "product.md")
+                      if ocr_dir and os.path.isdir(ocr_dir) else None)
+            if not src_md or not os.path.isfile(src_md):
+                src_md = os.path.join(crawl_dir, entry.name, "context.md")
+            if os.path.isfile(src_md):
+                shutil.copy2(src_md, os.path.join(domain_archive, "product.md"))
+
+            image_urls = []
+            assets_path = os.path.join(crawl_dir, entry.name, "assets.json")
+            if os.path.isfile(assets_path):
+                with open(assets_path, encoding="utf-8") as f:
+                    assets = json.load(f)
+                image_urls = [a["src"] for a in assets
+                              if a.get("src", "").startswith("http")
+                              and a.get("width", 0) >= 100]
+
+            with open(os.path.join(domain_archive, "result.json"), "w", encoding="utf-8") as f:
+                json.dump({"domain": hostname, "url": entry_url, "title": title,
+                           "status": status, "elapsed_seconds": elapsed,
+                           "images": image_urls, "product": {}},
+                          f, ensure_ascii=False, indent=2)
+
+    with open(os.path.join(archive_base, "meta.json"), "w", encoding="utf-8") as f:
+        json.dump({"run_name": run_name, "source": source, "run_ocr": run_ocr,
+                   "created_at": f"{date_str}T{raw_time}", "urls": all_urls},
+                  f, ensure_ascii=False, indent=2)
+
+    ocr_cache = os.path.join(_ROOT, "ocr", "cache", run_name)
+    for temp_dir in [crawl_dir, ocr_dir, ocr_cache]:
+        if temp_dir and os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    return archive_base
+
+
+def update_extract(archive_base: str, by_domain: dict):
+    """기존 archive에 LLM 추출 결과를 업데이트하고 index.json에 추가한다."""
+    meta_path = os.path.join(archive_base, "meta.json")
+    source, date_str, raw_time = "gui", None, None
+    if os.path.isfile(meta_path):
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        source = meta.get("source", "gui")
+        run_name = meta.get("run_name", "")
+        parts = run_name.split("_")
+        if len(parts) >= 3:
+            raw_date = parts[1]
+            raw_time = parts[2]
+            date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+
+    index_entries = []
+
+    for folder_name in sorted(os.listdir(archive_base)):
+        domain_dir = os.path.join(archive_base, folder_name)
+        if not os.path.isdir(domain_dir):
+            continue
+        result_path = os.path.join(domain_dir, "result.json")
+        if not os.path.isfile(result_path):
+            continue
+
+        with open(result_path, encoding="utf-8") as f:
+            result = json.load(f)
+
+        entry_url = result.get("url", "")
+        hostname = result.get("domain", "")
+
+        domain_records = by_domain.get(hostname) or next(
+            (v for k, v in by_domain.items() if hostname in k or k in hostname), [])
+        record = next((r for r in domain_records if r.get("URL") == entry_url), None)
+        if record is None and domain_records:
+            record = domain_records[0]
+
+        if record:
+            result["product"] = record
+            with open(result_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+
+            if date_str and raw_time:
+                index_entries.append({
+                    "source": source,
+                    "date": date_str,
+                    "time": raw_time,
+                    "domain": hostname,
+                    "url": entry_url,
+                    "product": record.get("상품명", ""),
+                    "models": [v.get("model", "") for v in record.get("variants", []) if v.get("model")],
+                    "path": f"{source}/{date_str}/{raw_time}/{folder_name}/result.json",
+                })
+
+    if index_entries:
+        index_path = os.path.join(_ROOT, "archive", "index.json")
+        with _lock:
+            existing = []
+            if os.path.isfile(index_path):
+                with open(index_path, encoding="utf-8") as f:
+                    existing = json.load(f)
+            existing.extend(index_entries)
+            with open(index_path, "w", encoding="utf-8") as f:
+                json.dump(existing, f, ensure_ascii=False, indent=2)
