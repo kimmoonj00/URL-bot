@@ -121,7 +121,8 @@ def save(source: str, run_name: str, run_ocr: bool, by_domain: dict) -> str:
                 json.dump(existing, f, ensure_ascii=False, indent=2)
 
     # temp 폴더 삭제
-    for temp_dir in [crawl_base, ocr_base]:
+    ocr_cache = os.path.join(_ROOT, "ocr", "cache", run_name)
+    for temp_dir in [crawl_base, ocr_base, ocr_cache]:
         if temp_dir and os.path.isdir(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
     for d in _glob.glob(os.path.join(_ROOT, "extract", "output", run_name + "*")):

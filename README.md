@@ -258,7 +258,7 @@ python extract/extractor.py  # 3단계: 추출
 
 | 파일 | 주요 설정 |
 |---|---|
-| `crawl/config.py` | `HEADLESS`, `MAX_CONCURRENT_PAGES`, `EXCLUDE_DOMAINS`, 사이트별 CSS 선택자 |
+| `crawl/config.py` | `HEADLESS`, `MAX_CONCURRENT_PAGES`, `NUM_BROWSER_WORKERS`, `CRAWL_QUEUE_MAXSIZE`, `EXCLUDE_DOMAINS`, 사이트별 CSS 선택자 |
 | `ocr/config.py` | `OCR_TILE_HEIGHT`, `OCR_CONFIDENCE_THRESHOLD`, `OCR_CACHE_ENABLED`, 인식 모델명 |
 | `extract/config.py` | `EXTRACTION_ENGINE` (`"gpt"` 또는 `"rules"`), `OPENAI_MODEL`, `SPEC_LABEL_KEYWORDS` |
 
@@ -309,6 +309,40 @@ DM: ✅ 크롤링 완료 + [📊 Extract 실행] 버튼
         ▼
 DM: 상품명 / 제조원 / 모델번호 / 규격 (표 형식)
 ```
+
+### 동시 사용 구조 (브라우저 워커 풀)
+
+> 여러 팀원이 동시에 요청해도 Chrome 충돌 없이 안정적으로 처리됩니다.  
+> 봇 시작 시 Chrome을 N개 미리 띄워두고, 요청이 오면 비어있는 Chrome에 배정합니다.
+
+**동시 수용 인원**
+
+- **워커 5개** (동시 처리) + **대기열 10개** = 최대 **15명** 동시 수용
+- 16번째 요청부터는 즉시 거절 DM 발송 (무한 대기 없음)
+
+**DM 안내 메시지**
+
+| 상황 | 메시지 |
+|---|---|
+| 워커 여유 있음 | `⏳ 크롤링 진행 중입니다.` |
+| 워커 모두 바쁨 (대기 중) | `⏳ 크롤링 진행 중입니다.` + `현재 사용 인원이 많아 시간이 조금 더 걸릴 수 있습니다.` |
+| 대기열까지 꽉 참 (16번째~) | `⚠️ 현재 사용 인원이 너무 많습니다. 잠시 후 다시 시도해 주세요.` |
+
+**주요 특징**
+
+- **프로필 충돌 없음**: 워커마다 독립된 Chrome 프로필 디렉토리(`worker_0` ~ `worker_N`) 사용 — SingletonLock 경합 원천 차단
+- **세션 유지**: 각 워커의 프로필에 로그인·쿠키 상태가 저장되어 재시작 후에도 유지
+- **자동 재시작**: Chrome이 예기치 않게 종료되면 2초 후 자동 재시작, 다음 요청부터 정상 처리
+- **CLI 분리**: 터미널 직접 실행 시 `worker_cli` 프로필을 별도로 사용해 봇 워커와 충돌하지 않음
+
+**설정** (`crawl/config.py`)
+
+| 항목 | 기본값 | 설명 |
+|---|:---:|---|
+| `NUM_BROWSER_WORKERS` | `5` | 동시 실행 Chrome 수. RAM 16GB 기준 5개 권장 (워커당 ~400MB). |
+| `CRAWL_QUEUE_MAXSIZE` | `10` | 대기열 최대 크기. 워커 수 + 대기열 크기 = 최대 동시 수용 인원. |
+
+---
 
 ### 주의사항
 

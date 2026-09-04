@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import sys
@@ -22,6 +21,11 @@ app = App(token=os.environ["SLACK_BOT_TOKEN"])
 _lock = threading.Lock()
 _dm_cache: dict = {}       # user_id → DM channel_id
 _extracting: set = set()   # output_dir — 중복 Extract 방지
+
+# 봇 시작 시 Chrome 워커 풀을 미리 준비한다.
+# 첫 요청 전에 모든 워커가 대기 상태가 되어 응답 지연을 최소화한다.
+from crawl.crawler import QueueFullError, _submit_crawl, ensure_worker_pool_started, get_pending_count
+ensure_worker_pool_started()
 
 
 # ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -163,15 +167,6 @@ def handle_run_modal_submit(ack, body, client):
         _send_dm(client, user_id, "❌ 유효한 URL이 없습니다. `https://`로 시작하는 URL을 입력해주세요.")
         return
 
-    ocr_tag = " (OCR 포함)" if run_ocr else ""
-    _send_dm(
-        client, user_id,
-        text=f"⏳ 크롤링 진행 중입니다{ocr_tag}.",
-        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text":
-            f"⏳ *크롤링 진행 중입니다{ocr_tag}.*\n{_url_preview(urls)}"
-        }}]
-    )
-
     threading.Thread(
         target=_run_pipeline,
         args=(user_id, urls, run_ocr, client),
@@ -182,46 +177,63 @@ def handle_run_modal_submit(ack, body, client):
 # ── 파이프라인 ────────────────────────────────────────────────────────────────
 
 def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
+    _now = datetime.now()
+    run_name = "slack_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")
+    output_dir = os.path.join(_ROOT, "crawl", "output", run_name)
+    ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name) if run_ocr else None
+
+    # 워커 풀 큐에 등록 — 가득 찼으면 즉시 사용자 알림
+    pending_before = get_pending_count()
     try:
-        from crawl.crawler import _run_capture_bot_async
+        fut = _submit_crawl(urls, output_dir)
+    except QueueFullError:
+        _send_dm(client, user_id,
+                 "⚠️ 현재 사용 인원이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
+        return
 
-        _now = datetime.now()
-        run_name = "slack_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
-        output_dir = os.path.join(_ROOT, "crawl", "output", run_name)
-        ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name) if run_ocr else None
+    ocr_tag = " (OCR 포함)" if run_ocr else ""
+    busy_notice = "\n현재 사용 인원이 많아 시간이 조금 더 걸릴 수 있습니다." if pending_before > 0 else ""
+    _send_dm(
+        client, user_id,
+        text=f"⏳ 크롤링 진행 중입니다{ocr_tag}.{busy_notice}",
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text":
+            f"⏳ *크롤링 진행 중입니다{ocr_tag}.*{busy_notice}\n{_url_preview(urls)}"
+        }}]
+    )
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(_run_capture_bot_async(
-                run_ocr_and_extract=False, urls=urls, output_dir=output_dir
-            ))
-        finally:
-            loop.close()
-
-        if run_ocr and ocr_dir:
-            from ocr import paddle_ocr
-            paddle_ocr.ocr_capture_dir(output_dir, ocr_dir)
-
-        ocr_tag = " (OCR 포함)" if run_ocr else ""
-        _send_dm(
-            client, user_id,
-            text=f"✅ 크롤링 완료{ocr_tag}",
-            blocks=[
-                {"type": "section", "text": {"type": "mrkdwn", "text":
-                    f"✅ *크롤링 완료{ocr_tag}*\n{_url_preview(urls)}"
-                }},
-                {"type": "actions", "elements": [
-                    {"type": "button", "text": {"type": "plain_text", "text": "📊 상품 정보 추출"}, "style": "primary",
-                     "action_id": "run_extract",
-                     "value": _button_value(run_name, run_ocr, urls)}
-                ]}
-            ]
-        )
-
+    # 워커가 크롤링을 완료할 때까지 이 스레드에서 블로킹 대기 (최대 10분)
+    try:
+        fut.result(timeout=600)
     except Exception as e:
         traceback.print_exc()
         _send_dm(client, user_id, f"❌ 처리 중 오류 발생:\n`{e}`")
+        return
+
+    # OCR은 Chrome 불필요 — 기존과 동일하게 이 스레드에서 실행
+    if run_ocr and ocr_dir:
+        try:
+            from ocr import paddle_ocr
+            paddle_ocr.ocr_capture_dir(output_dir, ocr_dir)
+        except Exception as e:
+            traceback.print_exc()
+            _send_dm(client, user_id, f"❌ OCR 처리 중 오류 발생:\n`{e}`")
+            return
+
+    ocr_tag = " (OCR 포함)" if run_ocr else ""
+    _send_dm(
+        client, user_id,
+        text=f"✅ 크롤링 완료{ocr_tag}",
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text":
+                f"✅ *크롤링 완료{ocr_tag}*\n{_url_preview(urls)}"
+            }},
+            {"type": "actions", "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "📊 상품 정보 추출"}, "style": "primary",
+                 "action_id": "run_extract",
+                 "value": _button_value(run_name, run_ocr, urls)}
+            ]}
+        ]
+    )
 
 
 # ── Extract ───────────────────────────────────────────────────────────────────
@@ -247,7 +259,20 @@ def handle_extract(ack, body, client):
     ocr_dir = os.path.join(_ROOT, "ocr", "output", run_name) if run_ocr else None
 
     if not os.path.isdir(output_dir):
-        _send_dm(client, user_id, "❌ 크롤링 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
+        # archive.save()가 완료 후 crawl 폴더를 삭제하므로 이미 추출된 경우 여기에 해당
+        index_path = os.path.join(_ROOT, "archive", "index.json")
+        already_archived = False
+        try:
+            if os.path.isfile(index_path):
+                with open(index_path, encoding="utf-8") as _f:
+                    _idx = json.load(_f)
+                already_archived = any(e.get("time") in run_name for e in _idx)
+        except Exception:
+            pass
+        if already_archived:
+            _send_dm(client, user_id, "✅ 이미 추출된 결과입니다. 새 작업을 시작하거나 아카이브를 확인해주세요.")
+        else:
+            _send_dm(client, user_id, "❌ 크롤링 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
         return
 
     with _lock:

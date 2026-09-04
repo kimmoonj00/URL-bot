@@ -3,7 +3,17 @@ import os
 _DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(_DIR)  # 루트 (crawler.py에서 BASE_DIR 참조용)
 
-BROWSER_PROFILE_DIR = os.path.join(_DIR, "chrome_profiles", "product_capture")
+# 워커별 프로필 기반 디렉토리.
+# 실제 프로필은 worker_0~worker_N (Slack 봇), worker_cli (CLI 직접 실행) 하위 폴더로 분리된다.
+# Chrome은 프로필 디렉토리에 SingletonLock을 걸기 때문에 워커마다 고유 경로가 필수다.
+BROWSER_PROFILE_BASE_DIR = os.path.join(_DIR, "chrome_profiles")
+
+# Slack 봇 동시 실행 워커 수. 각 워커 = 독립 Chrome 인스턴스.
+# 16GB 서버 기준 5개 권장 (HEADLESS=False 시 워커당 ~400MB).
+NUM_BROWSER_WORKERS = 5
+
+# asyncio.Queue 최대 크기. 초과 요청은 즉시 거절해 사용자에게 DM 알림을 보낸다.
+CRAWL_QUEUE_MAXSIZE = 10
 
 # 캡처 대상 URL 목록 파일. 코드 수정 없이 이 파일만 편집하면 대상이 바뀐다.
 URLS_FILE = os.path.join(_DIR, "urls.txt")
