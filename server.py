@@ -83,6 +83,8 @@ def _cleanup_gui_dirs():
 async def start_cleanup():
     _cleanup_gui_dirs()  # 이전 세션 gui_* 파일 정리
     threading.Thread(target=_cleanup_loop, daemon=True).start()
+    from crawl.crawler import ensure_worker_pool_started
+    ensure_worker_pool_started()  # Chrome 워커 풀 미리 준비
 
 
 class RunRequest(BaseModel):
@@ -95,18 +97,31 @@ class ExtractRequest(BaseModel):
 
 
 class _LogCapture:
-    """print() 출력을 job 로그 큐로 리다이렉트하면서 원본 stdout에도 유지한다."""
+    """서버 시작 시 sys.stdout을 한 번만 교체하는 스레드 인식 라우터.
+
+    각 job 스레드는 set_queue()/clear_queue()로 자신의 큐를 등록한다.
+    print()가 호출되면 현재 스레드 ID로 큐를 찾아 라우팅하므로 동시 실행
+    시에도 로그 스트림이 섞이지 않는다."""
 
     errors = "replace"
+    _local = threading.local()
 
-    def __init__(self, log_queue: queue.Queue, original):
-        self._q = log_queue
+    def __init__(self, original):
         self._orig = original
         self.encoding = getattr(original, "encoding", "utf-8")
 
+    @classmethod
+    def set_queue(cls, q: queue.Queue):
+        cls._local.queue = q
+
+    @classmethod
+    def clear_queue(cls):
+        cls._local.queue = None
+
     def write(self, text: str):
-        if text.strip():
-            self._q.put(text.rstrip("\n"))
+        q = getattr(self._local, "queue", None)
+        if q is not None and text.strip():
+            q.put(text.rstrip("\n"))
         self._orig.write(text)
 
     def flush(self):
@@ -117,6 +132,10 @@ class _LogCapture:
 
     def fileno(self):
         return self._orig.fileno()
+
+
+_log_capture = _LogCapture(sys.stdout)
+sys.stdout = _log_capture
 
 
 def _notify_slack(text: str):
@@ -154,17 +173,26 @@ def _notify_slack(text: str):
 def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
     job = jobs[job_id]
     log_q = job["log_queue"]
-    original_stdout = sys.stdout
-    sys.stdout = _LogCapture(log_q, original_stdout)
+    _LogCapture.set_queue(log_q)
 
     try:
-        from crawl.crawler import run_capture_bot
+        from crawl.crawler import QueueFullError, _submit_crawl, get_pending_count
 
         # GUI 실행은 gui_날짜/ 접두사 — main.py의 cli_날짜/와 구별해 TTL 정리 대상임
         _now = datetime.now()
         gui_run_name = "gui_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         output_dir = os.path.join(_ROOT, "crawl", "output", gui_run_name)
-        run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
+
+        # 워커 풀 큐에 등록 — 슬랙봇과 동일한 방식
+        pending = get_pending_count()
+        if pending > 0:
+            log_q.put(f"⏳ 앞에 {pending}개 작업 대기 중입니다...")
+        try:
+            fut = _submit_crawl(urls, output_dir)
+        except QueueFullError as e:
+            raise RuntimeError(str(e))
+
+        fut.result(timeout=600)  # 크롤링 완료 대기
         job["output_dir"] = output_dir
 
         if run_ocr and output_dir:
@@ -184,7 +212,7 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
         url_summary = urls[0] + (f" 외 {len(urls) - 1}개" if len(urls) > 1 else "")
         _notify_slack(f"❌ 크롤링 실패: {url_summary}\n{exc}")
     finally:
-        sys.stdout = original_stdout
+        _LogCapture.clear_queue()
         log_q.put(None)  # 스트리밍 종료 신호
 
 

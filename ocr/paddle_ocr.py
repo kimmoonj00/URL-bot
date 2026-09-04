@@ -522,12 +522,34 @@ def _reocr_table_run(img, table_rows: list):
     return _grid_from_words(words)
 
 
+def _rows_to_text(rows: list) -> str:
+    """행 목록을 텍스트로 변환. 행 간 y 간격이 평균 행 높이의 1.5배를 넘으면
+    시각적 섹션 구분으로 보고 빈 줄을 삽입한다."""
+    if not rows:
+        return ""
+    avg_h = sum(
+        max(w["y2"] for w in r) - min(w["y1"] for w in r)
+        for r in rows
+    ) / len(rows)
+
+    lines = []
+    prev_y2 = None
+    for r in rows:
+        y1 = min(w["y1"] for w in r)
+        y2 = max(w["y2"] for w in r)
+        if prev_y2 is not None and (y1 - prev_y2) > avg_h * 1.5:
+            lines.append("")
+        lines.append(correct_spacing(_row_to_line(r)))
+        prev_y2 = y2
+    return "\n".join(lines)
+
+
 def _render_block(rows: list, img) -> str:
     """블록의 행들을 줄 텍스트로. 표 구간이 있으면 그 부분만 고배율 재인식
     그리드로 바꿔 넣는다."""
     run = _find_table_run(rows) if config.OCR_TABLE_REOCR_ENABLED else None
     if not run:
-        return "\n".join(correct_spacing(_row_to_line(r)) for r in rows)
+        return _rows_to_text(rows)
 
     grid = None
     try:
@@ -535,14 +557,15 @@ def _render_block(rows: list, img) -> str:
     except Exception as error:
         print(f"    (표 재인식 건너뜀: {error})")
 
-    parts = [correct_spacing(_row_to_line(r)) for r in rows[:run[0]]]
+    parts = [_rows_to_text(rows[:run[0]])] if rows[:run[0]] else []
     if grid and grid.strip():
         print(f"    표 재인식: {run[1] - run[0]}행 → {len(grid.splitlines())}행 그리드")
         parts.append(grid)
     else:
-        parts += [correct_spacing(_row_to_line(r)) for r in rows[run[0]:run[1]]]
-    parts += [correct_spacing(_row_to_line(r)) for r in rows[run[1]:]]
-    return "\n".join(parts)
+        parts.append(_rows_to_text(rows[run[0]:run[1]]))
+    if rows[run[1]:]:
+        parts.append(_rows_to_text(rows[run[1]:]))
+    return "\n\n".join(p for p in parts if p)
 
 
 # ── 5. 파이프라인 ─────────────────────────────────────────────────────────────
