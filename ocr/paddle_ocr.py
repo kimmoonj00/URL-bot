@@ -317,6 +317,24 @@ def _row_to_line(row: list) -> str:
     return "".join(parts)
 
 
+def _row_to_lines(row: list) -> list:
+    """같은 행으로 묶인 단어들이라도 간격이 아주 크면(표 열이 아니라 서로
+    무관한 캡션이 우연히 같은 y대에 걸린 경우) 별도 줄로 쪼갠다. 정상적인
+    표/리스트의 열 간격(OCR_COL_GAP_RATIO)은 그대로 탭으로 유지되고, 그보다
+    훨씬 큰 간격(OCR_LINE_SPLIT_GAP_RATIO)만 줄바꿈 대상이 된다."""
+    clusters = [[row[0]]]
+    prev_x2 = row[0]["x2"]
+    for w in row[1:]:
+        gap = w["x1"] - prev_x2
+        char_w = w["w"] / max(len(w["text"]), 1)
+        if gap > char_w * config.OCR_LINE_SPLIT_GAP_RATIO:
+            clusters.append([w])
+        else:
+            clusters[-1].append(w)
+        prev_x2 = w["x2"]
+    return [_row_to_line(cluster) for cluster in clusters]
+
+
 # ── 4.5. 표 영역 재인식 (크롭 → 고배율 → 열 그리드) ─────────────────────────
 
 def _has_hangul(s: str) -> bool:
@@ -539,7 +557,9 @@ def _rows_to_text(rows: list) -> str:
         y2 = max(w["y2"] for w in r)
         if prev_y2 is not None and (y1 - prev_y2) > avg_h * 1.5:
             lines.append("")
-        lines.append(correct_spacing(_row_to_line(r)))
+        # 같은 행 안에서도 간격이 표 열 수준보다 훨씬 크면(서로 무관한
+        # 캡션이 우연히 같은 y대에 걸린 경우) 줄바꿈으로 더 쪼갠다.
+        lines.extend(correct_spacing(part) for part in _row_to_lines(r))
         prev_y2 = y2
     return "\n".join(lines)
 
