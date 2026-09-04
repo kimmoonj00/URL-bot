@@ -317,6 +317,24 @@ def _row_to_line(row: list) -> str:
     return "".join(parts)
 
 
+def _row_to_lines(row: list) -> list:
+    """같은 행으로 묶인 단어들이라도 간격이 아주 크면(표 열이 아니라 서로
+    무관한 캡션이 우연히 같은 y대에 걸린 경우) 별도 줄로 쪼갠다. 정상적인
+    표/리스트의 열 간격(OCR_COL_GAP_RATIO)은 그대로 탭으로 유지되고, 그보다
+    훨씬 큰 간격(OCR_LINE_SPLIT_GAP_RATIO)만 줄바꿈 대상이 된다."""
+    clusters = [[row[0]]]
+    prev_x2 = row[0]["x2"]
+    for w in row[1:]:
+        gap = w["x1"] - prev_x2
+        char_w = w["w"] / max(len(w["text"]), 1)
+        if gap > char_w * config.OCR_LINE_SPLIT_GAP_RATIO:
+            clusters.append([w])
+        else:
+            clusters[-1].append(w)
+        prev_x2 = w["x2"]
+    return [_row_to_line(cluster) for cluster in clusters]
+
+
 # ── 4.5. 표 영역 재인식 (크롭 → 고배율 → 열 그리드) ─────────────────────────
 
 def _has_hangul(s: str) -> bool:
@@ -525,9 +543,15 @@ def _reocr_table_run(img, table_rows: list):
 def _render_block(rows: list, img) -> str:
     """블록의 행들을 줄 텍스트로. 표 구간이 있으면 그 부분만 고배율 재인식
     그리드로 바꿔 넣는다."""
+    def _lines_for(rows_subset):
+        lines = []
+        for r in rows_subset:
+            lines.extend(correct_spacing(part) for part in _row_to_lines(r))
+        return lines
+
     run = _find_table_run(rows) if config.OCR_TABLE_REOCR_ENABLED else None
     if not run:
-        return "\n".join(correct_spacing(_row_to_line(r)) for r in rows)
+        return "\n".join(_lines_for(rows))
 
     grid = None
     try:
@@ -535,13 +559,13 @@ def _render_block(rows: list, img) -> str:
     except Exception as error:
         print(f"    (표 재인식 건너뜀: {error})")
 
-    parts = [correct_spacing(_row_to_line(r)) for r in rows[:run[0]]]
+    parts = _lines_for(rows[:run[0]])
     if grid and grid.strip():
         print(f"    표 재인식: {run[1] - run[0]}행 → {len(grid.splitlines())}행 그리드")
         parts.append(grid)
     else:
-        parts += [correct_spacing(_row_to_line(r)) for r in rows[run[0]:run[1]]]
-    parts += [correct_spacing(_row_to_line(r)) for r in rows[run[1]:]]
+        parts += _lines_for(rows[run[0]:run[1]])
+    parts += _lines_for(rows[run[1]:])
     return "\n".join(parts)
 
 
