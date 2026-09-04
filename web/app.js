@@ -431,6 +431,27 @@ function renderSearchResults(items) {
           </div>`).join('')
       : '<span class="search-no-images">저장된 이미지 없음</span>';
 
+    const product = item.product || {};
+    const variants = product.variants || [];
+    const manufacturer = product['제조원'] || item.manufacturer || '';
+    const mfrSource = product['제조원_source'] || 'dom';
+
+    const extractHtml = item.has_extract ? `
+      <div class="search-extract">
+        ${manufacturer ? `<div class="extract-manufacturer">제조원: ${escHtml(manufacturer)} ${sourceBadge(mfrSource)}</div>` : ''}
+        ${variants.length ? `
+          <table class="extract-table" style="margin-top:10px">
+            <thead><tr><th>모델번호</th><th>규격</th></tr></thead>
+            <tbody>
+              ${variants.map(v => `
+                <tr>
+                  <td class="model-cell">${escHtml(v.model || '—')} ${v.model && v.model_source ? sourceBadge(v.model_source) : ''}</td>
+                  <td>${(v['규격'] || []).map(renderSpec).join('')}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>` : '<p class="empty-state" style="margin-top:8px">추출된 규격 없음</p>'}
+      </div>` : '';
+
     return `
       <div class="search-item" id="search-item-${idx}">
         <button class="search-toggle" data-idx="${idx}">
@@ -443,7 +464,8 @@ function renderSearchResults(items) {
         </button>
         <div class="search-body" hidden>
           <a class="search-url" href="${escHtml(item.url)}" target="_blank" rel="noopener">${escHtml(item.url)}</a>
-          ${models ? `<div class="search-models">${escHtml(models)}</div>` : ''}
+          ${extractHtml}
+          <div style="margin-top:12px;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">이미지</div>
           <div class="search-images">${imagesHtml}</div>
         </div>
       </div>`;

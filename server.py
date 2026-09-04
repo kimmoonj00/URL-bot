@@ -154,13 +154,17 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
             job["error"] = str(e)
             return
 
+        log_q.put(f"상품 정보 수집 중... ({len(urls)}개 URL)")
         fut.result(timeout=600)
+        log_q.put("수집 완료")
 
         ocr_dir = None
         if run_ocr:
             from ocr import paddle_ocr
             ocr_dir = os.path.join(_ROOT, "ocr", "output", gui_run_name)
+            log_q.put("이미지 분석(OCR) 진행 중...")
             paddle_ocr.ocr_capture_dir(output_dir, ocr_dir)
+            log_q.put("이미지 분석 완료")
 
         import archive as _archive_mod
         archive_dir = _archive_mod.save_crawl("gui", gui_run_name, run_ocr, output_dir, ocr_dir)
@@ -365,6 +369,7 @@ async def search_archive(q: str = ""):
                         "models": [v.get("model", "") for v in product.get("variants", []) if v.get("model")] if product else [],
                         "images": result.get("images", []),
                         "has_extract": bool(product),
+                        "product": product,
                     })
 
     if q.strip():
@@ -372,6 +377,7 @@ async def search_archive(q: str = ""):
         results = [r for r in results if q_lower in " ".join([
             r.get("product_name", ""), r.get("url", ""),
             r.get("domain", ""), r.get("title", ""),
+            r.get("manufacturer", ""),
             " ".join(r.get("models", [])),
         ]).lower()]
 
