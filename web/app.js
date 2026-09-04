@@ -193,12 +193,12 @@ async function renderHistory() {
     const jobs = await res.json();
 
     if (!jobs.length) {
-      jobList.innerHTML = '<p class="empty-state">아직 실행 기록이 없습니다</p>';
+      jobList.innerHTML = '<p class="empty-state">아직 작업 기록이 없습니다</p>';
       return;
     }
 
     jobList.innerHTML = jobs.map(j => {
-      const statusLabel = { running: '실행 중', done: '완료', error: '오류' }[j.status] ?? j.status;
+      const statusLabel = { running: '진행 중', done: '완료', error: '오류' }[j.status] ?? j.status;
       const urlText = j.urls[0] + (j.urls.length > 1 ? ` 외 ${j.urls.length - 1}개` : '');
       const timeText = new Date(j.created_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -332,7 +332,7 @@ function appendLog(text) {
 }
 
 function setStatus(status) {
-  const labels = { running: '실행 중', done: '완료', error: '오류' };
+  const labels = { running: '진행 중', done: '완료', error: '오류' };
   logStatus.className = `status-badge ${status}`;
   logStatus.textContent = labels[status] ?? status;
 }

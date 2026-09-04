@@ -11,11 +11,11 @@
 
     <header>
       <h1>URL Bot</h1>
-      <p>URL을 입력하고 크롤링을 시작하세요</p>
+      <p>상품 URL을 입력하면 정보를 자동으로 수집·정리합니다</p>
     </header>
 
     <nav class="tab-nav">
-      <button class="tab-btn active" data-tab="crawl">크롤링</button>
+      <button class="tab-btn active" data-tab="crawl">수집</button>
       <button class="tab-btn" data-tab="search">검색</button>
     </nav>
 
@@ -26,11 +26,11 @@
 
         <section class="card">
           <div class="section-header">
-            <h2>검색</h2>
+            <h2>상품 정보 검색</h2>
           </div>
-          <p class="description">상품명, 모델번호, URL, 도메인으로 검색합니다.</p>
+          <p class="description">이전에 수집한 상품을 찾아볼 수 있습니다. 상품명, 모델번호, URL, 도메인으로 검색합니다.</p>
           <div class="input-row">
-            <input type="text" id="search-input" placeholder="검색어 입력 후 Enter">
+            <input type="text" id="search-input" name="search" autocomplete="on" placeholder="검색어 입력 후 Enter">
             <button class="btn btn-primary" id="search-btn">검색</button>
           </div>
         </section>
@@ -44,15 +44,16 @@
 
       </div>
 
-      <!-- ── 크롤링 탭 ── -->
+      <!-- ── 수집 탭 ── -->
       <div id="tab-crawl" class="tab-panel">
 
-      <!-- Step 1: 크롤링 -->
+      <!-- Step 1: 상품 정보 수집 -->
       <section class="card" id="crawl-section">
         <div class="section-header">
           <span class="step-badge">1</span>
-          <h2>크롤링</h2>
+          <h2>상품 정보 수집</h2>
         </div>
+        <p class="description">상품 URL을 입력하면 페이지 내용을 자동으로 읽어옵니다.</p>
 
         <div class="form-group">
           <label for="url-input">
@@ -70,8 +71,8 @@
           <label class="toggle-label" for="ocr-toggle">
             <input type="checkbox" id="ocr-toggle">
             <span class="toggle"></span>
-            이미지 OCR 포함
-            <span class="hint">시간이 더 걸릴 수 있습니다</span>
+            이미지 분석 포함
+            <span class="hint">이미지 속 텍스트까지 인식합니다. 시간이 더 걸릴 수 있습니다.</span>
           </label>
           <button id="run-btn" class="btn btn-primary">실행</button>
         </div>
@@ -80,56 +81,56 @@
       <!-- 진행 로그 -->
       <section class="card" id="log-section" hidden>
         <div class="section-header">
-          <span id="log-status" class="status-badge running">실행 중</span>
+          <span id="log-status" class="status-badge running">진행 중</span>
           <h2>진행 로그</h2>
           <button id="clear-log-btn" class="btn-icon" title="로그 지우기">✕</button>
         </div>
         <div id="log-output" class="log-output" aria-live="polite"></div>
         <div id="view-result-row" class="view-result-row" hidden>
-          <button id="view-result-btn" class="btn btn-outline">결과 보기 ▾</button>
+          <button id="view-result-btn" class="btn btn-outline">수집 결과 보기 ▾</button>
         </div>
       </section>
 
       <!-- 결과 뷰어 -->
       <section class="card" id="result-section" hidden>
         <div class="section-header">
-          <h2>크롤링 결과</h2>
+          <h2>수집 결과</h2>
           <button id="close-result-btn" class="btn-icon" title="닫기">✕</button>
         </div>
         <div id="result-content"></div>
       </section>
 
-      <!-- Step 2: 데이터 추출 -->
+      <!-- Step 2: 정보 분석 -->
       <section class="card" id="extract-section">
         <div class="section-header">
           <span class="step-badge">2</span>
-          <h2>데이터 추출</h2>
+          <h2>정보 분석</h2>
         </div>
         <p class="description">
-          GPT-4o-mini로 상품명, 모델번호, 규격을 구조화합니다.
+          수집된 내용에서 상품명, 모델번호, 규격을 자동으로 정리합니다.
         </p>
         <button id="extract-btn" class="btn btn-secondary">
-          Extract 실행
+          분석 시작
         </button>
       </section>
 
-      <!-- 추출 결과 -->
+      <!-- 분석 결과 -->
       <section class="card" id="extract-result-section" hidden>
         <div class="section-header">
-          <h2>추출 결과</h2>
+          <h2>분석 결과</h2>
           <button id="close-extract-btn" class="btn-icon" title="닫기">✕</button>
         </div>
         <div id="extract-result-content"></div>
       </section>
 
-      <!-- 실행 기록 -->
+      <!-- 작업 기록 -->
       <section class="card" id="history-section">
         <button class="section-header history-toggle" id="history-toggle">
-          <h2>실행 기록</h2>
+          <h2>작업 기록</h2>
           <span class="chevron">▾</span>
         </button>
         <div id="job-list" hidden>
-          <p class="empty-state">아직 실행 기록이 없습니다</p>
+          <p class="empty-state">아직 작업 기록이 없습니다</p>
         </div>
       </section>
 
