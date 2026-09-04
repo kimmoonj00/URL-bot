@@ -419,7 +419,7 @@ function renderSearchResults(items) {
   searchResultContent.innerHTML = items.map((item, idx) => {
     const name = item.product_name || item.title || item.domain || '(이름 없음)';
     const dateLabel = `${item.date} ${item.time.slice(0,2)}:${item.time.slice(2,4)}`;
-    const srcTag = item.source !== 'gui' ? `<span class="job-tag">${item.source}</span>` : '';
+    const srcTag = `<span class="job-tag">${item.source}</span>`;
     const extractTag = item.has_extract ? '<span class="job-tag" style="background:#dcfce7;color:#15803d">추출완료</span>' : '';
     const models = item.models.length ? `모델: ${item.models.slice(0,5).join(', ')}` : '';
 
