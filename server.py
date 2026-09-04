@@ -325,6 +325,59 @@ async def run_extract(req: ExtractRequest):
     return {"results": results}
 
 
+@app.get("/api/search")
+async def search_archive(q: str = ""):
+    archive_root = os.path.join(_ROOT, "archive")
+    results = []
+
+    for source in ("gui", "slack", "cli"):
+        source_dir = os.path.join(archive_root, source)
+        if not os.path.isdir(source_dir):
+            continue
+        for date_name in sorted(os.listdir(source_dir), reverse=True):
+            date_dir = os.path.join(source_dir, date_name)
+            if not os.path.isdir(date_dir):
+                continue
+            for time_name in sorted(os.listdir(date_dir), reverse=True):
+                time_dir = os.path.join(date_dir, time_name)
+                if not os.path.isdir(time_dir):
+                    continue
+                for domain_uuid in sorted(os.listdir(time_dir)):
+                    domain_dir = os.path.join(time_dir, domain_uuid)
+                    if not os.path.isdir(domain_dir):
+                        continue
+                    result_path = os.path.join(domain_dir, "result.json")
+                    if not os.path.isfile(result_path):
+                        continue
+                    with open(result_path, encoding="utf-8") as f:
+                        result = json.load(f)
+                    product = result.get("product") or {}
+                    results.append({
+                        "source": source,
+                        "date": date_name,
+                        "time": time_name,
+                        "url": result.get("url", ""),
+                        "title": result.get("title", ""),
+                        "domain": result.get("domain", ""),
+                        "status": result.get("status", ""),
+                        "product_name": product.get("상품명", "") if product else "",
+                        "manufacturer": product.get("제조원", "") if product else "",
+                        "models": [v.get("model", "") for v in product.get("variants", []) if v.get("model")] if product else [],
+                        "images": result.get("images", []),
+                        "has_extract": bool(product),
+                    })
+
+    if q.strip():
+        q_lower = q.strip().lower()
+        results = [r for r in results if q_lower in " ".join([
+            r.get("product_name", ""), r.get("url", ""),
+            r.get("domain", ""), r.get("title", ""),
+            " ".join(r.get("models", [])),
+        ]).lower()]
+
+    return results
+
+
 # 정적 파일 서빙 (반드시 마지막에 등록)
 web_dir = os.path.join(_ROOT, "web")
 if os.path.isdir(web_dir):

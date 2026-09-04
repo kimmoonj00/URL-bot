@@ -359,5 +359,101 @@ clearLogBtn.addEventListener('click', () => {
   logOutput.textContent = '';
 });
 
+// ── 탭 전환 ──────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.getElementById('tab-crawl').hidden = tab !== 'crawl';
+    document.getElementById('tab-search').hidden = tab !== 'search';
+    if (tab === 'search') searchResultSection.hidden = true;
+  });
+});
+
+// ── 검색 ─────────────────────────────────────────────────────────────────────
+
+const searchInput         = document.getElementById('search-input');
+const searchBtn           = document.getElementById('search-btn');
+const searchResultSection = document.getElementById('search-result-section');
+const searchResultTitle   = document.getElementById('search-result-title');
+const searchResultContent = document.getElementById('search-result-content');
+
+searchBtn.addEventListener('click', runSearch);
+searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') runSearch(); });
+
+async function runSearch() {
+  const q = searchInput.value.trim();
+  if (!q) {
+    searchResultSection.hidden = true;
+    return;
+  }
+  searchResultSection.hidden = false;
+  searchResultContent.innerHTML = '<p class="empty-state">검색 중...</p>';
+
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    if (!res.ok) throw new Error(res.statusText);
+    const items = await res.json();
+    searchResultTitle.textContent = q
+      ? `검색 결과 (${items.length}건)`
+      : `전체 Archive (${items.length}건)`;
+    renderSearchResults(items);
+  } catch (e) {
+    searchResultContent.innerHTML = `<p class="empty-state">오류: ${e.message}</p>`;
+  }
+}
+
+function renderSearchResults(items) {
+  if (!items.length) {
+    searchResultContent.innerHTML = '<p class="empty-state">결과가 없습니다.</p>';
+    return;
+  }
+
+  searchResultContent.innerHTML = items.map((item, idx) => {
+    const name = item.product_name || item.title || item.domain || '(이름 없음)';
+    const dateLabel = `${item.date} ${item.time.slice(0,2)}:${item.time.slice(2,4)}`;
+    const srcTag = item.source !== 'gui' ? `<span class="job-tag">${item.source}</span>` : '';
+    const extractTag = item.has_extract ? '<span class="job-tag" style="background:#dcfce7;color:#15803d">추출완료</span>' : '';
+    const models = item.models.length ? `모델: ${item.models.slice(0,5).join(', ')}` : '';
+
+    const imagesHtml = item.images.length
+      ? item.images.slice(0, 12).map(src => `
+          <div class="search-img-wrap">
+            <img src="${escHtml(src)}" loading="lazy" onerror="this.style.display='none'">
+            <a class="img-link" href="${escHtml(src)}" target="_blank" rel="noopener"><span>열기</span></a>
+          </div>`).join('')
+      : '<span class="search-no-images">저장된 이미지 없음</span>';
+
+    return `
+      <div class="search-item" id="search-item-${idx}">
+        <button class="search-toggle" data-idx="${idx}">
+          <span class="search-name">${escHtml(name)}</span>
+          <div class="search-meta">
+            ${srcTag}${extractTag}
+            <span class="search-date">${dateLabel}</span>
+          </div>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="search-body" hidden>
+          <a class="search-url" href="${escHtml(item.url)}" target="_blank" rel="noopener">${escHtml(item.url)}</a>
+          ${models ? `<div class="search-models">${escHtml(models)}</div>` : ''}
+          <div class="search-images">${imagesHtml}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  searchResultContent.querySelectorAll('.search-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.search-item');
+      const body = item.querySelector('.search-body');
+      const isOpen = !body.hidden;
+      body.hidden = isOpen;
+      item.classList.toggle('open', !isOpen);
+    });
+  });
+}
+
 // ── 초기 로드 ─────────────────────────────────────────────────────────────────
 renderHistory();
