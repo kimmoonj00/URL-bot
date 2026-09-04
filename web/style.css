@@ -67,6 +67,7 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  overflow-y: scroll;
 }
 
 .app {
@@ -96,6 +97,16 @@ main {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tab-panel[hidden] {
+  display: none;
 }
 
 /* ── Card ────────────────────────────────── */
