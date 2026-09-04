@@ -83,10 +83,16 @@ def _home_view() -> dict:
         "type": "home",
         "blocks": [
             {"type": "header", "text": {"type": "plain_text", "text": "🤖 URL Bot"}},
-            {"type": "section", "text": {"type": "mrkdwn", "text": "상품 URL을 입력하면 크롤링 → OCR → 정보 추출까지 자동으로 진행됩니다."}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "상품 URL을 입력하면 정보를 자동으로 수집·정리합니다."}},
+            {"type": "divider"},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "📥  *1단계: 상품 정보 수집*\n웹페이지 내용을 읽어옵니다 (약 30초)"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "↓"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "🖼️  *2단계: 이미지 분석* _(선택)_\n이미지 속 텍스트까지 인식합니다 (추가 1~3분)"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "↓"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "🔍  *3단계: 정보 분석*\n상품명·모델번호·규격을 자동으로 정리합니다"}},
             {"type": "divider"},
             {"type": "actions", "elements": [
-                {"type": "button", "text": {"type": "plain_text", "text": "🔍 새 작업 시작"}, "style": "primary", "action_id": "open_run_modal"}
+                {"type": "button", "text": {"type": "plain_text", "text": "작업 시작"}, "style": "primary", "action_id": "open_run_modal"}
             ]}
         ]
     }
@@ -142,7 +148,7 @@ def open_run_modal(ack, body, client):
                 {
                     "type": "context",
                     "elements": [
-                        {"type": "mrkdwn", "text": "⏱ URL당 크롤링 약 30초, OCR 포함 시 추가 1~3분 소요됩니다."}
+                        {"type": "mrkdwn", "text": "⏱ URL당 상품 정보 수집 약 30초, 이미지 분석 포함 시 추가 1~3분 소요됩니다."}
                     ]
                 }
             ]
@@ -195,9 +201,9 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
     busy_notice = "\n현재 사용 인원이 많아 시간이 조금 더 걸릴 수 있습니다." if pending_before > 0 else ""
     _send_dm(
         client, user_id,
-        text=f"⏳ 크롤링 진행 중입니다{ocr_tag}.{busy_notice}",
+        text=f"⏳ 상품 정보 수집 중입니다{ocr_tag}.{busy_notice}",
         blocks=[{"type": "section", "text": {"type": "mrkdwn", "text":
-            f"⏳ *크롤링 진행 중입니다{ocr_tag}.*{busy_notice}\n{_url_preview(urls)}"
+            f"⏳ *상품 정보 수집 중입니다{ocr_tag}.*{busy_notice}\n{_url_preview(urls)}"
         }}]
     )
 
@@ -231,10 +237,10 @@ def _run_pipeline(user_id: str, urls: list, run_ocr: bool, client) -> None:
     ocr_tag = " (OCR 포함)" if run_ocr else ""
     _send_dm(
         client, user_id,
-        text=f"✅ 크롤링 완료{ocr_tag}",
+        text=f"✅ 정보 수집 완료{ocr_tag}",
         blocks=[
             {"type": "section", "text": {"type": "mrkdwn", "text":
-                f"✅ *크롤링 완료{ocr_tag}*\n{_url_preview(urls)}"
+                f"✅ *정보 수집 완료{ocr_tag}*\n{_url_preview(urls)}"
             }},
             {"type": "actions", "elements": [
                 {"type": "button", "text": {"type": "plain_text", "text": "📊 상품 정보 추출"}, "style": "primary",
@@ -264,7 +270,7 @@ def handle_extract(ack, body, client):
         return
 
     if not os.path.isdir(archive_dir):
-        _send_dm(client, user_id, "❌ 저장된 크롤링 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
+        _send_dm(client, user_id, "❌ 저장된 정보 수집 결과를 찾을 수 없습니다. 새 작업을 시작해주세요.")
         return
 
     with _lock:
