@@ -83,8 +83,6 @@ def _cleanup_gui_dirs():
 async def start_cleanup():
     _cleanup_gui_dirs()  # 이전 세션 gui_* 파일 정리
     threading.Thread(target=_cleanup_loop, daemon=True).start()
-    from crawl.crawler import ensure_worker_pool_started
-    ensure_worker_pool_started()  # Chrome 워커 풀 미리 준비
 
 
 class RunRequest(BaseModel):
@@ -176,23 +174,12 @@ def _run_pipeline(job_id: str, urls: list, run_ocr: bool):
     _LogCapture.set_queue(log_q)
 
     try:
-        from crawl.crawler import QueueFullError, _submit_crawl, get_pending_count
+        from crawl.crawler import run_capture_bot
 
-        # GUI 실행은 gui_날짜/ 접두사 — main.py의 cli_날짜/와 구별해 TTL 정리 대상임
         _now = datetime.now()
         gui_run_name = "gui_" + _now.strftime("%Y%m%d_%H%M%S") + _now.strftime("%f")[:3]
         output_dir = os.path.join(_ROOT, "crawl", "output", gui_run_name)
-
-        # 워커 풀 큐에 등록 — 슬랙봇과 동일한 방식
-        pending = get_pending_count()
-        if pending > 0:
-            log_q.put(f"⏳ 앞에 {pending}개 작업 대기 중입니다...")
-        try:
-            fut = _submit_crawl(urls, output_dir)
-        except QueueFullError as e:
-            raise RuntimeError(str(e))
-
-        fut.result(timeout=600)  # 크롤링 완료 대기
+        run_capture_bot(run_ocr_and_extract=False, urls=urls, output_dir=output_dir)
         job["output_dir"] = output_dir
 
         if run_ocr and output_dir:
