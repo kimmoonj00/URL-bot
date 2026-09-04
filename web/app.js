@@ -84,7 +84,12 @@ function streamLogs(jobId) {
     } else if (data.type === 'done') {
       const ok = data.status === 'done';
       setStatus(ok ? 'done' : 'error');
-      if (data.error) appendLog(`[오류] ${data.error}`);
+      if (data.error) {
+        if (data.error.includes('대기열')) {
+          alert('⚠️ 현재 사용 인원이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
+        }
+        appendLog(`[오류] ${data.error}`);
+      }
       setRunning(false);
       if (ok) viewResultRow.hidden = false;
       eventSource.close();
